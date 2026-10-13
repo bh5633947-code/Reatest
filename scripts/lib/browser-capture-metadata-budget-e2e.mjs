@@ -54,10 +54,13 @@ export async function verifyBrowserCaptureMetadataBudget(endpoint) {
     if (address === null || typeof address === "string")
       throw new Error("Browser metadata fixture did not bind a TCP port");
     fixtureOrigin = `http://127.0.0.1:${String(address.port)}`;
+    // Each script leaves a function behind, not a boolean: V8 may collect a
+    // script nothing references, and a collected script is not replayed as
+    // scriptParsed to the later captures, each of which opens its own session.
     const annotations = Array.from(
       { length: SCRIPT_COUNT },
       (_, index) =>
-        `<script>globalThis["${marker}${index}"]=true;\n//# sourceMappingURL=${fixtureOrigin}/maps/${String(index)}-${"x".repeat(ANNOTATION_BYTES)}.map\n</script>`,
+        `<script>globalThis["${marker}${index}"]=()=>true;\n//# sourceMappingURL=${fixtureOrigin}/maps/${String(index)}-${"x".repeat(ANNOTATION_BYTES)}.map\n</script>`,
     ).join("");
     page = `<!doctype html><meta charset="utf-8">${annotations}<script>fetch("/capture-metadata-ready")</script>`;
     const fixtureUrl = `${fixtureOrigin}/capture-metadata-budget`;
