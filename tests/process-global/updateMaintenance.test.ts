@@ -128,6 +128,23 @@ describe("OMP integration maintenance", () => {
 });
 
 describe("maintenance activation and layered configuration", () => {
+  it("selects the fallback registration an empty ZCode native table loads", async () => {
+    await mkdir(join(home, ".zcode", "cli"), { recursive: true });
+    await mkdir(join(home, ".agents"), { recursive: true });
+    await writeFile(
+      join(home, ".agents", "mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          rea: { type: "stdio", command: entryPoint, args: ["mcp"] },
+        },
+      }),
+    );
+
+    await expect(
+      existingMaintenanceScope(home, entryPoint, process.env),
+    ).resolves.toMatchObject({ clients: ["zcode"] });
+  });
+
   it("leaves a natively disabled ZCode registration outside maintenance", async () => {
     const configPath = await writeClient(
       "zcode",

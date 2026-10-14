@@ -116,34 +116,7 @@ export const readClientRegistrationInspections = async (
   ): void => {
     inspections.push({ status, activation });
   };
-  for (const client of supportedClients(
-    home,
-    options.platform,
-    options.environment,
-  )) {
-    if (client.configPathError !== undefined) {
-      record({
-        client: client.name,
-        config_path: client.configPath,
-        command: [],
-        state: "invalid",
-        remediation: client.configPathError,
-      });
-      continue;
-    }
-    if (!(await clientEvidencePresent(client))) continue;
-    const manualRemediation = manualRegistrationRemediation(client.name);
-    if (client.format === "unsupported") {
-      if (manualRemediation !== undefined)
-        record({
-          client: client.name,
-          config_path: client.markerPath ?? client.configPath,
-          command: [],
-          state: "manual",
-          remediation: manualRemediation,
-        });
-      continue;
-    }
+  const evaluateClient = async (client: SetupClient): Promise<void> => {
     try {
       const files = await readClientConfigurationFiles(
         client,
@@ -157,12 +130,36 @@ export const readClientRegistrationInspections = async (
           state: "invalid",
           remediation: files.error.detail,
         });
-        continue;
+        return;
       }
       const parsed = effectiveClientConfiguration(files.value);
+      // ZCode loads ~/.agents/mcp.json whenever its native mcp.servers table
+      // is empty, so the status must come from that fallback there, with the
+      // same admission a fallback write target gets during uninstall.
+      if (
+        client.format === "zcode" &&
+        client.zcodeFallbackPath !== undefined &&
+        (parsed === undefined || Object.keys(parsed.servers).length === 0)
+      ) {
+        const reachable = await fallbackReachable(client.zcodeFallbackPath);
+        if (reachable === "present")
+          return evaluateClient({
+            ...client,
+            configPath: client.zcodeFallbackPath,
+            format: "zcode_fallback",
+          });
+        if (reachable === "denied")
+          record({
+            client: client.name,
+            config_path: client.zcodeFallbackPath,
+            command: [],
+            state: "invalid",
+            remediation: `The ZCode fallback configuration ${client.zcodeFallbackPath} could not be read. Check its permissions before rerunning doctor: while the native table stays empty, ZCode loads that fallback.`,
+          });
+      }
       if (parsed === undefined) {
         record(unavailableStatus(client, "missing"));
-        continue;
+        return;
       }
       const policy = await readClientPolicyBlock(
         client,
@@ -178,7 +175,7 @@ export const readClientRegistrationInspections = async (
           state: "invalid",
           remediation: policy.error.detail,
         });
-        continue;
+        return;
       }
       const policyBlock = policy.value;
       const raw = effectiveClientServer(parsed, PRODUCT_IDENTITY.mcpServerKey);
@@ -195,10 +192,10 @@ export const readClientRegistrationInspections = async (
             state: "invalid",
             remediation: editabilityError.message,
           });
-          continue;
+          return;
         }
         record(unavailableStatus(client, "missing"));
-        continue;
+        return;
       }
       const registration = parseRegistration(raw, client);
       const command: RegistrationCommand = [
@@ -240,6 +237,36 @@ export const readClientRegistrationInspections = async (
         unavailableStatus(client, isMissing(cause) ? "missing" : "invalid"),
       );
     }
+  };
+  for (const client of supportedClients(
+    home,
+    options.platform,
+    options.environment,
+  )) {
+    if (client.configPathError !== undefined) {
+      record({
+        client: client.name,
+        config_path: client.configPath,
+        command: [],
+        state: "invalid",
+        remediation: client.configPathError,
+      });
+      continue;
+    }
+    if (!(await clientEvidencePresent(client))) continue;
+    const manualRemediation = manualRegistrationRemediation(client.name);
+    if (client.format === "unsupported") {
+      if (manualRemediation !== undefined)
+        record({
+          client: client.name,
+          config_path: client.markerPath ?? client.configPath,
+          command: [],
+          state: "manual",
+          remediation: manualRemediation,
+        });
+      continue;
+    }
+    await evaluateClient(client);
   }
   return inspections.sort((left, right) =>
     compareUnicodeCodePoints(left.status.client, right.status.client),
@@ -254,7 +281,8 @@ const registrationActivation = (
   (client.format !== "grok" && registration.disabled === true) ||
   (registration.enabled === false &&
     !clientServerForcedEnabled(parsed, PRODUCT_IDENTITY.mcpServerKey)) ||
-  (client.format === "zcode" && registration.enable === false) ||
+  ((client.format === "zcode" || client.format === "zcode_fallback") &&
+    registration.enable === false) ||
   clientServerListedDisabled(parsed, PRODUCT_IDENTITY.mcpServerKey)
     ? "disabled"
     : "enabled";
@@ -458,6 +486,18 @@ const exists = async (path: string | undefined): Promise<boolean> => {
     // best-effort cleanup: optional registration probing; absence means unregistered.
     void cause;
     return false;
+  }
+};
+
+/** Distinguish an absent fallback from one whose permissions hide it. */
+const fallbackReachable = async (
+  path: string,
+): Promise<"present" | "absent" | "denied"> => {
+  try {
+    await access(path);
+    return "present";
+  } catch (cause: unknown) {
+    return isMissing(cause) ? "absent" : "denied";
   }
 };
 
