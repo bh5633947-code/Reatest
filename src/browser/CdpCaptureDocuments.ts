@@ -17,6 +17,7 @@ import {
   type DomSvgNodeQuery,
 } from "./CdpCaptureDomSvg.js";
 import { compareUnicodeCodePoints } from "../domain/unicodeCodePointOrder.js";
+import type { BrowserExclusionReason } from "../domain/browserCompleteness.js";
 
 export type CapturedResource = Omit<
   WebPageInspection["resources"][number],
@@ -56,9 +57,16 @@ export const captureFrames = (
       continue;
     }
     if (maximum !== undefined && items.length >= maximum) continue;
+    const parentFrameId = cdpStringValue(frame.parentId);
+    // Only the enclosing tree's root may legitimately omit parent evidence.
+    if (
+      (tree !== root || Object.hasOwn(frame, "parentId")) &&
+      (parentFrameId === undefined || parentFrameId.length === 0)
+    )
+      completeness?.exclude("frames", "invalid_protocol_value");
     items.push({
       frame_id: frameId,
-      parent_frame_id: cdpStringValue(frame.parentId) ?? null,
+      parent_frame_id: parentFrameId ?? null,
       url: sanitized.url,
       origin: sanitized.origin,
     });
@@ -182,14 +190,16 @@ export function* captureDom(
   let excludedUrls = 0;
   let total = 0;
   let unresolvedSvgNodes = 0;
-  for (const document of recordsValue(root.documents)) {
+  if (!Array.isArray(root.strings))
+    excludeDocumentEvidence(completeness, "invalid_protocol_value", null);
+  for (const document of snapshotDocuments(root.documents, completeness)) {
     const documentUrl = indexedString(strings, document.documentURL);
     if (documentUrl === undefined) {
-      completeness?.exclude("dom", "invalid_protocol_value");
+      excludeDocumentEvidence(completeness, "invalid_protocol_value");
       continue;
     }
     if (allowedSanitizedUrl(documentUrl, allowedOrigins) === undefined) {
-      completeness?.exclude("dom", exclusionReasonForUrl(documentUrl));
+      excludeDocumentEvidence(completeness, exclusionReasonForUrl(documentUrl));
       continue;
     }
     const baseUrlValue =
@@ -197,12 +207,15 @@ export function* captureDom(
         ? documentUrl
         : indexedString(strings, document.baseURL);
     if (baseUrlValue === undefined) {
-      completeness?.exclude("dom", "invalid_protocol_value");
+      excludeDocumentEvidence(completeness, "invalid_protocol_value");
       continue;
     }
     const baseUrl = baseUrlValue || documentUrl;
     const documentNodes = recordValue(document.nodes);
-    if (documentNodes === undefined) continue;
+    if (documentNodes === undefined) {
+      excludeDocumentEvidence(completeness, "invalid_protocol_value");
+      continue;
+    }
     const rawNodeTypes = numberArray(documentNodes.nodeType);
     const rawNodeNames = numberArray(documentNodes.nodeName);
     const rawNodeValues = numberArray(documentNodes.nodeValue);
@@ -220,12 +233,12 @@ export function* captureDom(
       rawNodeValues.length !== rawNodeTypes.length ||
       rawParents.length !== rawNodeTypes.length
     ) {
-      completeness?.exclude("dom", "invalid_protocol_value");
+      excludeDocumentEvidence(completeness, "invalid_protocol_value");
       continue;
     }
     if (rawAttributes.length > rawNodeTypes.length)
-      completeness?.exclude(
-        "dom",
+      excludeDocumentEvidence(
+        completeness,
         "invalid_protocol_value",
         rawAttributes.length - rawNodeTypes.length,
       );
@@ -265,7 +278,7 @@ export function* captureDom(
             value === undefined || indexedString(strings, value) === undefined,
         )
       ) {
-        completeness?.exclude("dom", "invalid_protocol_value");
+        excludeDocumentEvidence(completeness, "invalid_protocol_value");
         continue;
       }
       const attributes = attributeIndexes as readonly number[];
@@ -344,6 +357,32 @@ export function* captureDom(
     unresolvedSvgNodes,
   };
 }
+
+/** Skipped document facts also make the derived URL and hint inventory incomplete. */
+const excludeDocumentEvidence = (
+  completeness: CdpCaptureCompleteness | undefined,
+  reason: BrowserExclusionReason,
+  count: number | null = 1,
+): void => {
+  completeness?.exclude("dom", reason, count);
+  completeness?.exclude("metadata", reason, count);
+};
+
+const snapshotDocuments = (
+  value: unknown,
+  completeness: CdpCaptureCompleteness | undefined,
+): readonly UnknownRecord[] => {
+  if (!Array.isArray(value) || value.length === 0) {
+    excludeDocumentEvidence(completeness, "invalid_protocol_value", null);
+    return [];
+  }
+  return value.flatMap((item) => {
+    const document = recordValue(item);
+    if (document === undefined)
+      excludeDocumentEvidence(completeness, "invalid_protocol_value");
+    return document === undefined ? [] : [document];
+  });
+};
 
 function* captureDomMetadata(
   pending: readonly PendingDomMetadata[],
