@@ -72,6 +72,10 @@ describe("Electron option keys in reconstructed application graphs", () => {
     ["plain key", EXPLICIT],
     ["quoted key", `"webPreferences": ${PRELOAD}`],
     ["computed literal", `["webPreferences"]: ${PRELOAD}`],
+    [
+      "computed preference literals",
+      '["webPreferences"]: { ["preload"]: "./preload.js", ["sandbox"]: true }',
+    ],
     ["later explicit key", `...options, [getKey()]: null, ${EXPLICIT}`],
     ["last duplicate key", `webPreferences: null, ${EXPLICIT}`],
   ])(
@@ -84,6 +88,32 @@ describe("Electron option keys in reconstructed application graphs", () => {
       expect(preloads).toHaveLength(1);
       expect(result.electron_summary.preload_entrypoints).toBe(1);
       expect(result.electron_summary.explicit_web_preferences).toBe(2);
+      const window = result.graph.nodes.find(
+        ({ kind }) => kind === "browser-window",
+      );
+      expect(window?.observations[0]).toMatchObject({
+        properties: {
+          web_preferences: [
+            {
+              name: "preload",
+              value: {
+                status: "literal",
+                value: "./preload.js",
+                expression: null,
+              },
+            },
+            {
+              name: "sandbox",
+              value: { status: "literal", value: true, expression: null },
+            },
+          ],
+        },
+        evidence: {
+          state: "observed",
+          confidence: "exact",
+          coverage: { status: "complete" },
+        },
+      });
       expect(result.graph.edges).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -109,7 +139,9 @@ describe("Electron option keys in reconstructed application graphs", () => {
       );
     },
   );
+});
 
+describe("Electron unresolved option values in reconstructed application graphs", () => {
   it("keeps a computed serviceName unknown in the utility-process observation", async () => {
     const result = await reconstructSource(`
       const serviceName = "env";

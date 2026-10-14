@@ -2,6 +2,85 @@ import { describe, expect, it } from "vitest";
 
 import { analyzeJavaScriptStaticSource } from "./javascriptStaticAnalysis.js";
 
+describe("Electron exact preference keys", () => {
+  it("does not confuse a wrapped empty preference key with an unknown preload override", () => {
+    const analysis = analyzeJavaScriptStaticSource(`
+      const { BrowserWindow } = require("electron");
+      new BrowserWindow({ webPreferences: { preload: "./kept.js", ["" as const]: true } });
+    `);
+    expect(analysis.parse_status).toBe("complete");
+    expect(analysis.electron.browser_windows[0]).toMatchObject({
+      preload_path: "./kept.js",
+      web_preferences: [
+        {
+          name: "",
+          value: { status: "literal", value: true, expression: null },
+        },
+        {
+          name: "preload",
+          value: { status: "literal", value: "./kept.js", expression: null },
+        },
+      ],
+    });
+  });
+
+  it("retains computed literal preference names, including empty and numeric keys", () => {
+    const analysis = analyzeJavaScriptStaticSource(`
+      const { BrowserWindow } = require("electron");
+      new BrowserWindow({ webPreferences: {
+        ["sandbox"]: true, ["preload"]: "./preload.js", [""]: false, [1]: "one"
+      } });
+    `);
+    expect(analysis.parse_status).toBe("complete");
+    expect(analysis.electron.browser_windows[0]).toMatchObject({
+      preload_path: "./preload.js",
+      web_preferences: [
+        {
+          name: "",
+          value: { status: "literal", value: false, expression: null },
+        },
+        {
+          name: "1",
+          value: { status: "literal", value: "one", expression: null },
+        },
+        {
+          name: "preload",
+          value: { status: "literal", value: "./preload.js", expression: null },
+        },
+        {
+          name: "sandbox",
+          value: { status: "literal", value: true, expression: null },
+        },
+      ],
+    });
+  });
+
+  it("keeps an unresolved computed preference key and its preload override unknown", () => {
+    const analysis = analyzeJavaScriptStaticSource(`
+      const { BrowserWindow } = require("electron");
+      new BrowserWindow({ webPreferences: {
+        ["preload"]: "./maybe.js", [getKey()]: true
+      } });
+    `);
+    expect(analysis.parse_status).toBe("partial");
+    expect(analysis.electron.browser_windows[0]).toMatchObject({
+      preload_path: null,
+    });
+    expect(analysis.electron.browser_windows[0]?.web_preferences).toEqual(
+      expect.arrayContaining([
+        {
+          name: "preload",
+          value: { status: "literal", value: "./maybe.js", expression: null },
+        },
+        {
+          name: expect.stringMatching(/^\[dynamic@/u),
+          value: expect.objectContaining({ status: "dynamic", value: null }),
+        },
+      ]),
+    );
+  });
+});
+
 describe("Electron option evidence", () => {
   it("keeps the final explicit preload and service name with unrelated keys", () => {
     const analysis = analyzeJavaScriptStaticSource(`
