@@ -242,26 +242,58 @@ const readOptionalSkillState = async (
   }
 };
 
+/** Skill directories have the same no-follow ownership rule as uninstall. */
+const requireRegularSkillDirectories = async (root: string): Promise<void> => {
+  for (const path of [root, join(root, "references")]) {
+    try {
+      const directory = await lstat(path);
+      if (directory.isSymbolicLink())
+        throw Object.assign(
+          new Error(
+            "Skill directory is a symbolic link. Use a regular directory or run setup with --skill=false.",
+          ),
+          { path },
+        );
+      if (!directory.isDirectory())
+        throw Object.assign(new Error("Skill path is not a directory."), {
+          path,
+        });
+    } catch (cause: unknown) {
+      if (cause instanceof Error && "code" in cause && cause.code === "ENOENT")
+        continue;
+      throw cause;
+    }
+  }
+};
+
 const canonicalSkillFiles = async (
   home: string,
   clientIds: readonly string[],
   environment: Readonly<NodeJS.ProcessEnv> = {},
   platform: NodeJS.Platform = process.platform,
   resources?: ArtifactResourceScope,
-): Promise<readonly CanonicalSkillFile[]> =>
-  Promise.all(
-    skillDestinations(home, clientIds, environment, platform).flatMap(
-      ({ path: root }) =>
-        MANAGED_SKILL_FILES.map(async (relativePath) => {
-          const destination = join(root, relativePath);
-          return {
-            destination,
-            content: await canonicalSkillContent(relativePath),
-            original: await readOptionalSkillState(destination, resources),
-          };
-        }),
+): Promise<readonly CanonicalSkillFile[]> => {
+  const destinations = skillDestinations(
+    home,
+    clientIds,
+    environment,
+    platform,
+  );
+  for (const { path: root } of destinations)
+    await requireRegularSkillDirectories(root);
+  return Promise.all(
+    destinations.flatMap(({ path: root }) =>
+      MANAGED_SKILL_FILES.map(async (relativePath) => {
+        const destination = join(root, relativePath);
+        return {
+          destination,
+          content: await canonicalSkillContent(relativePath),
+          original: await readOptionalSkillState(destination, resources),
+        };
+      }),
     ),
   );
+};
 
 const canonicalSkillNeedsInstallByReading = async (
   home: string,
@@ -276,6 +308,7 @@ const canonicalSkillNeedsInstallByReading = async (
     environment,
     platform,
   )) {
+    await requireRegularSkillDirectories(root);
     for (const relativePath of MANAGED_SKILL_FILES) {
       const destination = join(root, relativePath);
       const content = await canonicalSkillContent(relativePath);
@@ -467,6 +500,7 @@ export const readInstalledSkillIdentity = async (
   let content: string | undefined;
   for (const destination of destinations) {
     try {
+      await requireRegularSkillDirectories(destination.path);
       content = await readSkillFile(
         join(destination.path, "SKILL.md"),
         resources,

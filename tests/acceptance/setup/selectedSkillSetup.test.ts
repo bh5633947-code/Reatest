@@ -1,10 +1,80 @@
-import { access, readFile, readdir, writeFile } from "node:fs/promises";
+import {
+  access,
+  cp,
+  lstat,
+  mkdir,
+  readFile,
+  readdir,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 
 import { expect } from "vitest";
 
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { cliTest } from "../../support/cli/cliFixture.js";
+
+cliTest(
+  "setup refuses a linked skill while allowing registration-only setup",
+  async ({ cli }) => {
+    const directory = await createTestTempDirectory("rea-linked-skill-cli-");
+    const managed = join(directory, "managed");
+    const selected = join(
+      directory,
+      ".claude/skills/reverse-engineer-anything",
+    );
+    await mkdir(managed);
+    await mkdir(join(directory, ".claude/skills"), { recursive: true });
+    await cp(resolve("skills/reverse-engineer-anything"), managed, {
+      recursive: true,
+    });
+    const original = await readFile(join(managed, "SKILL.md"), "utf8");
+    await symlink(
+      managed,
+      selected,
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    const run = (arguments_: readonly string[]) =>
+      cli.run({
+        arguments: [...arguments_, "--json"],
+        cwd: directory,
+        environment: { USERPROFILE: directory },
+      });
+
+    const refused = await run([
+      "setup",
+      "--skill-client",
+      "claude_code",
+      "--yes",
+    ]);
+    expect(refused.exitCode, refused.stdout).toBe(1);
+    expect(refused.json).toMatchObject({
+      status: "needs_human",
+      code: "skill_install_failed",
+    });
+    expect(refused.stdout).toContain("symbolic link");
+    const doctor = await run(["doctor", "--client", "claude_code", "--skill"]);
+    expect(doctor.exitCode, doctor.stdout).toBe(1);
+    expect(doctor.json).toMatchObject({
+      healthy: false,
+      identity: { skill: { state: "missing" } },
+    });
+    const registration = await run([
+      "setup",
+      "--client",
+      "claude_code",
+      "--skill=false",
+      "--yes",
+    ]);
+    expect(registration.exitCode, registration.stdout).toBe(0);
+    expect(registration.json).toMatchObject({ status: "ready" });
+    await access(join(directory, ".claude.json"));
+    expect((await lstat(selected)).isSymbolicLink()).toBe(true);
+    expect((await readdir(managed)).sort()).toEqual(["SKILL.md", "references"]);
+    expect(await readFile(join(managed, "SKILL.md"), "utf8")).toBe(original);
+  },
+);
 
 cliTest(
   "skill-only setup verifies its selected client copy on install, rerun and repair",

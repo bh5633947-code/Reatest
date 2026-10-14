@@ -3,10 +3,13 @@ import {
   access,
   chmod,
   copyFile,
+  lstat,
   mkdir,
   readFile,
+  readdir,
   rm,
   stat,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
@@ -121,6 +124,53 @@ describe("skill recovery byte preservation", () => {
       "historical instructions V0\n",
     );
   });
+});
+
+describe("skill directory admission", () => {
+  it.each(["root", "references"] as const)(
+    "refuses a linked skill %s before changing any selected destination",
+    async (linkedDirectory) => {
+      const home = await createTestTempDirectory("rea-skill-linked-root-");
+      const destinations = skillDestinations(home, ["shared", "claude_code"]);
+      const selected = destinations.find(
+        ({ client }) => client === "claude_code",
+      );
+      if (selected === undefined)
+        throw new Error("Missing Claude Code skill root");
+      const managed = join(home, "user-managed");
+      await mkdir(managed);
+      const original = "user-owned instructions\n";
+      await writeFile(join(managed, "SKILL.md"), original);
+      const linked =
+        linkedDirectory === "root"
+          ? selected.path
+          : join(selected.path, "references");
+      await mkdir(dirname(linked), { recursive: true });
+      await symlink(
+        managed,
+        linked,
+        process.platform === "win32" ? "junction" : "dir",
+      );
+
+      const result = await installCanonicalSkill(home, [
+        "shared",
+        "claude_code",
+      ]);
+      if (result.ok) throw new Error("Expected linked directory refusal");
+      expect(result.error.stage).toBe("prepare");
+      expect(result.error.path).toBe(linked);
+      expect(result.error.reason).toContain("symbolic link");
+      expect(result.error.rollbackFailures).toEqual([]);
+      expect((await lstat(linked)).isSymbolicLink()).toBe(true);
+      expect(await readFile(join(managed, "SKILL.md"), "utf8")).toBe(original);
+      expect(await readdir(managed)).toEqual(["SKILL.md"]);
+      const shared = destinations.find(({ client }) => client === "shared");
+      if (shared === undefined) throw new Error("Missing shared skill root");
+      await expect(access(shared.path)).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+    },
+  );
 });
 
 describe("canonical skill transaction", () => {
