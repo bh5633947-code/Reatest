@@ -57,6 +57,10 @@ export const existingMaintenanceScope = async (
     entryPoint,
     {
       environment,
+      // A registration REA wrote must be refreshed even when the product
+      // profile is absent, so maintenance reads ownership evidence instead of
+      // product applicability. Owned rows stay the only ones selected below.
+      evidence: "ownership",
       ...(resources === undefined ? {} : { resources }),
     },
   );
