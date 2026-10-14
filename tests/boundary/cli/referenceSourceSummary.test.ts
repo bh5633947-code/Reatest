@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { describe, expect } from "vitest";
@@ -13,6 +13,44 @@ import { cliTest } from "../../support/cli/cliFixture.js";
 describe.skipIf(process.platform === "win32")(
   "compiled historical-source summaries",
   () => {
+    cliTest(
+      "preserves stable broken symlink targets in the compiled import graph",
+      async ({ cli }) => {
+        const root = await createTestTempDirectory(
+          "rea-reference-broken-link-",
+        );
+        await mkdir(join(root, "links"));
+        await writeFile(join(root, "target.js"), "export const value = 1;\n");
+        await symlink("../absent/child.js", join(root, "links", "absent.js"));
+        await symlink(
+          "../target.js/child.js",
+          join(root, "links", "blocked.js"),
+        );
+
+        const result = await cli.run({
+          arguments: ["import-reference-source", root, "--json"],
+          cwd: root,
+        });
+
+        expect(result.exitCode, result.stdout + result.stderr).toBe(0);
+        const graph = parseHistoricalSourceGraph(result.json);
+        for (const [path, target] of [
+          ["links/absent.js", "../absent/child.js"],
+          ["links/blocked.js", "../target.js/child.js"],
+        ]) {
+          expect(graph.entries).toContainEqual(
+            expect.objectContaining({
+              path,
+              kind: "symlink",
+              target,
+              target_state: "missing",
+              limitations: [],
+            }),
+          );
+        }
+      },
+    );
+
     cliTest(
       "selects a committed summary without changing complete output",
       async ({ cli }) => {

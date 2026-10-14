@@ -176,10 +176,15 @@ describe("readReferenceSource failures and exclusions", () => {
     });
 
     if (!result.ok) throw result.error;
-    expect(checked).toEqual([
-      ["ignored", "directory"],
-      ["kept", "file"],
-    ]);
+    // Filesystem enumeration order is unspecified; every entry must still be
+    // checked exactly once and the excluded directory must not be traversed.
+    expect(checked).toHaveLength(2);
+    expect(checked).toEqual(
+      expect.arrayContaining([
+        ["ignored", "directory"],
+        ["kept", "file"],
+      ]),
+    );
     expect(result.value.entries.map(({ path }) => path)).toEqual(["kept"]);
   });
 
