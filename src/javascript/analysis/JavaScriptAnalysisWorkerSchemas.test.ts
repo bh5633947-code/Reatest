@@ -3,6 +3,21 @@ import { expect, it } from "vitest";
 import { analyzeJavaScriptStaticSource } from "../../domain/javascript/javascriptStaticAnalysis.js";
 import { javaScriptWorkerStaticAnalysisSchema } from "./JavaScriptAnalysisWorkerSchemas.js";
 
+it("admits candidate endpoint interpretations through the worker schema", () => {
+  const facts = analyzeJavaScriptStaticSource(
+    'client.post("session"); fetch("/literal");',
+  );
+  const parsed = javaScriptWorkerStaticAnalysisSchema.parse(
+    JSON.parse(JSON.stringify(facts)) as unknown,
+  );
+  const endpoint = (value: string) =>
+    parsed.endpoints.find((item) => item.value === value);
+  expect(endpoint("session")).toMatchObject({ interpretation: "candidate" });
+  expect(endpoint("/literal")).toBeDefined();
+  // An observed literal stays without the key rather than carrying undefined.
+  expect(endpoint("/literal")).not.toHaveProperty("interpretation");
+});
+
 it("versions fingerprints through the worker schema and rejects v1", () => {
   const facts =
     analyzeJavaScriptStaticSource(`globalThis.webpackChunkApp.push([[1], {
