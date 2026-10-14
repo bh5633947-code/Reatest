@@ -47,6 +47,7 @@ import {
   prepareSessionExecution,
 } from "./BinarySessionExecution.js";
 import { closeAnalysisClient } from "./AnalysisClientCleanup.js";
+import { createProviderSelectionEvidence } from "./ProviderSelectionEvidence.js";
 import { analysisErrorWithCleanupFailure } from "../../domain/analysisErrorCleanup.js";
 const OFFICIAL_OPERATIONS: ReadonlySet<string> = new Set(
   OFFICIAL_TOOL_CONTRACTS.map(({ name }) => name),
@@ -367,6 +368,18 @@ export class BinarySession
         );
       }
     }
+    const recorded = this.#recordProviderSelection(target, route);
+    if (!recorded.ok) {
+      this.#active = undefined;
+      return err(
+        await this.#failedOpen(
+          client,
+          route.identity.id,
+          previous,
+          recorded.error,
+        ),
+      );
+    }
     return ok(target);
   }
 
@@ -428,6 +441,27 @@ export class BinarySession
       if (!retired.ok) return err(retirementFailure(value, retired.error));
       return ok(value);
     });
+  }
+
+  /**
+   * Retain the deterministic selection decision for an admitted target.
+   *
+   * Only the slow path records it: reopening an unchanged target and profile
+   * resolves the identical decision, whose Evidence identity already exists, so
+   * the retained fast path adds nothing. The record carries no analysis profile
+   * and is never registered in the snapshot cache, so it can neither replay
+   * provider results nor claim provider-produced observations.
+   */
+  #recordProviderSelection(
+    target: BinaryTarget,
+    route: SessionProviderRoute,
+  ): Result<null, AnalysisError> {
+    const selection = route.selection;
+    if (selection === undefined) return ok(null);
+    const created = createProviderSelectionEvidence(target, selection);
+    if (!created.ok) return created;
+    const recorded = this.recordEvidence(created.value);
+    return recorded.ok ? ok(null) : recorded;
   }
 
   /** Close the active target, if any. */
