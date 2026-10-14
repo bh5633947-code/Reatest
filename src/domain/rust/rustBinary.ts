@@ -2,7 +2,8 @@ import { z } from "zod";
 import { digestSchema } from "../digests.js";
 import { localPathStringSchema } from "../localPath.js";
 
-export const RUST_AUDITABLE_FORMAT_VERSION = 1;
+/** cargo-auditable format revisions with a published meaning; all share one JSON schema. */
+export const RUST_AUDITABLE_FORMAT_VERSIONS = [0, 1, 8] as const;
 
 const index = z.number().int().nonnegative();
 const rustcHash = z.string().regex(/^[0-9a-f]{40}$/u);
@@ -29,7 +30,7 @@ export const rustAuditableMetadataSchema = z.strictObject({
   section_bytes: z.number().int().positive(),
   compressed_bytes: z.number().int().positive(),
   uncompressed_bytes: z.number().int().positive(),
-  format_version: z.literal(RUST_AUDITABLE_FORMAT_VERSION).nullable(),
+  format_version: z.literal(RUST_AUDITABLE_FORMAT_VERSIONS).nullable(),
   packages: z.array(rustPackageSchema),
   root_package_index: index.nullable(),
   dependency_edges: z.array(dependencyEdgeSchema),

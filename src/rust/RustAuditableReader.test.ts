@@ -1,5 +1,6 @@
 import { deflateSync } from "node:zlib";
 import { expect, it } from "vitest";
+import { rustAuditableMetadataSchema } from "../domain/rust/rustBinary.js";
 import {
   RUST_SECTION_BYTES,
   readAuditableSection,
@@ -151,6 +152,22 @@ it("stops an inflate that exceeds the section ratio", () => {
   expect(() =>
     readAuditableSection(".dep-v0", 0, Buffer.alloc(RUST_SECTION_BYTES + 1)),
   ).toThrow(/1 MiB/);
+});
+
+// cargo-auditable writes 8 when Cargo's SBOM precursor supplies the tree, and
+// documents 0 as an omitted field; both keep the format 1 package schema.
+it.each([0, 8])("reads documented format revision %i", (format) => {
+  const parsed = section({
+    format,
+    packages: [
+      { name: "sample", version: "0.1.0", source: "local", root: true },
+    ],
+  });
+  expect(parsed).toMatchObject({
+    format_version: format,
+    root_package_index: 0,
+  });
+  expect(rustAuditableMetadataSchema.parse(parsed)).toEqual(parsed);
 });
 
 it.each([{ packages: [] }, { packages: [{ future_package_field: true }] }])(

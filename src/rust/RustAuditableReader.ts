@@ -1,7 +1,7 @@
 import { deflateSync, inflateSync } from "node:zlib";
 import { z } from "zod";
 import {
-  RUST_AUDITABLE_FORMAT_VERSION,
+  RUST_AUDITABLE_FORMAT_VERSIONS,
   cyclicDependencyIndices,
   type RustAuditableMetadata,
   type RustPackage,
@@ -32,7 +32,7 @@ const documentVersionSchema = z.object({
 });
 const documentSchema = documentVersionSchema
   .extend({
-    format: z.literal(RUST_AUDITABLE_FORMAT_VERSION).optional(),
+    format: z.literal(RUST_AUDITABLE_FORMAT_VERSIONS).optional(),
     packages: z.array(packageSchema),
   })
   .strict();
@@ -241,7 +241,9 @@ const parseDocument = (bytes: Buffer): z.infer<typeof documentSchema> => {
     );
   if (
     version.data.format !== undefined &&
-    version.data.format !== RUST_AUDITABLE_FORMAT_VERSION
+    !RUST_AUDITABLE_FORMAT_VERSIONS.some(
+      (known) => known === version.data.format,
+    )
   )
     throw new RustAuditableFormatFailure(
       "unsupported",
