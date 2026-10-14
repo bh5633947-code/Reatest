@@ -160,6 +160,45 @@ export const typeRanges = (
   return ranges;
 };
 
+/**
+ * Enclosing TypeDef row of each nested TypeDef row, from the NestedClass
+ * table. Nesting is complete only when every row was read and valid.
+ */
+const enclosingRows = (
+  bytes: Buffer,
+  layout: ManagedMetadataLayout,
+  issues: ManagedParseIssue[],
+): {
+  readonly enclosing: ReadonlyMap<number, number>;
+  readonly complete: boolean;
+} => {
+  const issueCount = issues.length;
+  const typeCount = layout.table(2)?.rowCount ?? 0;
+  const enclosing = new Map<number, number>();
+  for (let row = 1; row <= (layout.table(0x29)?.rowCount ?? 0); row += 1)
+    readManagedValue(() => {
+      const cursor = metadataRowCursor(bytes, layout, 0x29, row);
+      const nested = cursor.readIndex(layout.tableIndexSize(2));
+      const outer = cursor.readIndex(layout.tableIndexSize(2));
+      if (
+        nested === 0 ||
+        outer === 0 ||
+        nested > typeCount ||
+        outer > typeCount ||
+        nested === outer ||
+        enclosing.has(nested)
+      )
+        issues.push({
+          code: "invalid-row",
+          scope: `metadata.NestedClass:${metadataToken(0x29, row)}`,
+          offset: cursor.start,
+          detail: `NestedClass row pairs TypeDef ${nested} with enclosing TypeDef ${outer}, which is not a distinct, unique pair of existing types`,
+        });
+      else enclosing.set(nested, outer);
+    }, issues);
+  return { enclosing, complete: issues.length === issueCount };
+};
+
 export const parseTypes = (
   bytes: Buffer,
   layout: ManagedMetadataLayout,
@@ -167,12 +206,19 @@ export const parseTypes = (
 ): {
   readonly types: readonly ManagedType[];
   readonly issues: readonly ManagedParseIssue[];
+  /** Whether every NestedClass row was read and valid. */
+  readonly nestingRead: boolean;
 } => {
   const typeTable = layout.table(2);
   const fields = memberListTable(layout, 4);
   const methods = memberListTable(layout, 6);
   const items: ManagedType[] = [];
   const issues: ManagedParseIssue[] = [];
+  const { enclosing, complete: nestingRead } = enclosingRows(
+    bytes,
+    layout,
+    issues,
+  );
   for (let row = 1; row <= (typeTable?.rowCount ?? 0); row += 1) {
     readManagedValue(() => {
       const cursor = metadataRowCursor(bytes, layout, 2, row);
@@ -219,6 +265,7 @@ export const parseTypes = (
           offset: extendsOffset,
           detail: `TypeDef Extends coded index 0x${extendsRaw.toString(16)} is invalid: ${extendsReason}`,
         });
+      const enclosingRow = enclosing.get(row);
       items.push({
         token: metadataToken(2, row),
         row_offset: cursor.start,
@@ -232,6 +279,8 @@ export const parseTypes = (
           [2, 1, 27],
           layout.rowCounts,
         ),
+        enclosing_type_token:
+          enclosingRow === undefined ? null : metadataToken(2, enclosingRow),
         field_list: {
           first_row: fieldRange.first,
           last_row: fieldRange.last,
@@ -245,7 +294,7 @@ export const parseTypes = (
       });
     }, issues);
   }
-  return { types: items, issues };
+  return { types: items, issues, nestingRead };
 };
 
 export const readCompressed = (

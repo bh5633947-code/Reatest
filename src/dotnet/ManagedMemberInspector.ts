@@ -71,6 +71,7 @@ const unavailable = (
         requires_mvid: null,
       },
       types: [],
+      nesting_read: false,
       exported_types: null,
       user_strings: null,
       fields: [],
@@ -251,6 +252,7 @@ export const inspectManagedMembersBytes = (
             selected === null
               ? parsedTypes.types
               : parsedTypes.types.filter((type) => selected.has(type.token)),
+          nesting_read: parsedTypes.nestingRead,
           exported_types: exportedTypes.exportedTypes,
           fields: fields.fields,
           methods: methods.methods,

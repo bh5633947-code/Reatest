@@ -98,6 +98,12 @@ const managedTypeSchema = z.object({
   full_name: z.string(),
   flags: z.number().int().min(0).max(0xffff_ffff),
   extends_token: tokenSchema.nullable(),
+  enclosing_type_token: tokenSchema
+    .nullable()
+    .default(null)
+    .describe(
+      "Enclosing TypeDef of a nested type from the NestedClass table; null for a top-level type or when nesting was not read",
+    ),
   field_list: z.object({
     first_row: z.number().int().min(1).nullable(),
     last_row: z.number().int().min(0).nullable(),
@@ -459,6 +465,10 @@ export const managedMemberInspectionSchema = z.object({
     requires_mvid: cliMetadataGuidSchema.nullable(),
   }),
   types: z.array(managedTypeSchema),
+  // Member Evidence recorded before NestedClass rows were read omits this
+  // field; false means enclosing types were not examined or a NestedClass row
+  // was unreadable or invalid, not that none exist.
+  nesting_read: z.boolean().default(false),
   // Member Evidence recorded before ExportedType rows were read omits this
   // field; null means the table was not examined, not that it was empty.
   exported_types: z.array(managedExportedTypeSchema).nullable().default(null),

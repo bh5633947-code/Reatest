@@ -133,7 +133,9 @@ MCP uses `inspect_managed_members` with
 Repeat `--type` or supply multiple unique `type_names` for several types.
 Names match the reported `full_name` exactly. Top-level names are namespace
 qualified; nested types currently report bare names, which can select several
-types with that name.
+types with that name. Each type's `enclosing_type_token` names the TypeDef that
+encloses it, or is null for a top-level type. Evidence recorded before nesting
+was read omits it.
 
 The result preserves the requested names in `selection.type_names` and reports
 unmatched names separately. If metadata names are unreadable, limitations retain
@@ -209,7 +211,12 @@ native/runtime questions retain their own authority and coverage.
 Names and semantic labels do not establish durable member identity. Comparison
 preserves observed differences, structural inferences, and unknowns separately.
 
-Cross-version matching first pairs members of the same declared type and name:
+Cross-version matching first pairs members of the same declared type and name.
+A nested declared type includes its enclosing types, so same-named nested types
+in different enclosing types stay distinct. When either side cannot name every
+enclosing type, because its Evidence predates nesting, a NestedClass row was
+invalid or unreadable, or a type selection left an enclosing type out, both
+sides use bare nested names. Matching then pairs
 methods by exact CIL/signature identity, then by raw signature, then by
 structural body shape; fields by raw signature. Exact CIL/signature identity
 requires equal raw CIL digests and decoded fingerprints. Equal decoded
