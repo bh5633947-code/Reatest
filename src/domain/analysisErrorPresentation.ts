@@ -301,11 +301,15 @@ const hopperErrorUserMessage = (error: AnalysisError): string | undefined => {
 const RESTART_OWNED_PROVIDER =
   "Restart the owned provider by calling close_binary, then open the target again and retry.";
 
+const HOPPER_EXITED_RECOVERY =
+  "The Hopper app has exited, so close_binary cannot confirm its cleanup and reopening the target cannot recover this session. Export the Evidence bundle first if its records are needed, then end the owning REA connection and open the target again.";
+
 const hopperProcessRemediation = (error: HopperProcessError): string => {
   if (error.failureCode !== undefined && error.userMessage !== undefined)
     return error.userMessage;
   if (error.stage === "launch")
     return "Review the captured launcher diagnostics and Hopper setup, then retry opening the target.";
+  if (error.providerState === "exited") return HOPPER_EXITED_RECOVERY;
   if (providerRetryAction(error.providerState) === "restart_provider")
     return RESTART_OWNED_PROVIDER;
   return "Read binary_session.provider_operation_health for this request before retrying or restarting the owned provider.";
@@ -330,7 +334,7 @@ const hopperProcessMessage = (error: HopperProcessError): string => {
         : `exit code ${String(error.exitCode)}`;
     const recovery =
       error.failureCode === undefined && stage !== "launch"
-        ? ` ${RESTART_OWNED_PROVIDER}`
+        ? ` ${HOPPER_EXITED_RECOVERY}`
         : "";
     return `Hopper exited during ${where} (${exit}).${startup}${recovery}${request}`;
   }
