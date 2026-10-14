@@ -72,7 +72,7 @@ export const decodeHarCapture = (
         : { kind: "json-pointer", pointer: `/log/entries/${ordinal}` },
       ...projection,
       limitations: [
-        "HAR text is producer-decoded Unicode. Original body bytes remain unknown unless content explicitly uses valid base64; declared sizes are preserved independently of retained bytes. mitmproxy 12.2.3 SaveHar may report null optional postData.text; that null is retained and omitted only from the upstream validation copy.",
+        "HAR text is producer-decoded Unicode. Original body bytes remain unknown unless content explicitly uses valid base64; declared sizes are preserved independently of retained bytes. mitmproxy 12.2.3 SaveHar may report null optional postData.text; that null is retained and omitted only from the upstream validation copy. Playwright 1.58.2 may report bracketed IPv6 serverIPAddress; the original spelling is retained, with brackets removed only from the validation copy when the enclosed value is a valid IPv6 literal. Producer declarations are not authenticated.",
         ...(recordsExcluded
           ? [
               "This record's payload and sidecars are excluded because its structural ancestor property was explicitly marked sensitive.",

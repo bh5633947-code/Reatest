@@ -4,6 +4,72 @@ import { historicalHar } from "../../../tests/fixtures/historicalHar.js";
 import { decodeCaptureText } from "./CaptureJson.js";
 import { decodeHarCapture } from "./HarCapture.js";
 
+it.each(["[2001:db8::1]", "[::1]", "[::ffff:192.0.2.1]"])(
+  "validates observed Playwright IPv6 spelling %s without rewriting reported Evidence",
+  (address) => {
+    const fixture = historicalHar();
+    const first = fixture.log.entries[0];
+    if (first === undefined) throw new Error("fixture missing");
+    const input = {
+      log: {
+        ...fixture.log,
+        creator: { name: "Playwright", version: "1.58.2" },
+        entries: [
+          {
+            ...first,
+            serverIPAddress: address,
+            _extension: { serverIPAddress: address },
+          },
+        ],
+      },
+    };
+    const decoded = decodeHarCapture(JSON.stringify(input), []);
+    expect(decoded.records[0]).toMatchObject({
+      ordinal: 0,
+      reported: {
+        serverIPAddress: address,
+        _extension: { serverIPAddress: address },
+      },
+    });
+    expect(input.log.entries[0]?.serverIPAddress).toBe(address);
+    expect(
+      decodeHarCapture(JSON.stringify(input), [address]).records[0]?.reported,
+    ).toMatchObject({ serverIPAddress: null });
+  },
+);
+
+it.each([
+  { name: "other", version: "1.58.2", address: "[2001:db8::1]" },
+  { name: "Playwright", version: "1.58.1", address: "[2001:db8::1]" },
+  ...[
+    "[192.0.2.1]",
+    "[not-an-ip]",
+    "[2001:db8::1]:443",
+    "[fe80::1%eth0]",
+    "[ 2001:db8::1 ]",
+    "[]",
+  ].map((address) => ({ name: "Playwright", version: "1.58.2", address })),
+])(
+  "keeps HAR address validation strict outside the observed profile: %j",
+  ({ name, version, address }) => {
+    const fixture = historicalHar();
+    const first = fixture.log.entries[0];
+    if (first === undefined) throw new Error("fixture missing");
+    expect(() =>
+      decodeHarCapture(
+        JSON.stringify({
+          log: {
+            ...fixture.log,
+            creator: { name, version },
+            entries: [{ ...first, serverIPAddress: address }],
+          },
+        }),
+        [],
+      ),
+    ).toThrow("HAR schema validation failed");
+  },
+);
+
 it.each([
   { values: [] },
   { values: ["response"] },

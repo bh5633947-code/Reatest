@@ -1,4 +1,4 @@
-import { apiSurfaceHar } from "../../fixtures/historicalHar.js";
+import { apiSurfaceHar, historicalHar } from "../../fixtures/historicalHar.js";
 import { createHash } from "node:crypto";
 import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -19,6 +19,36 @@ import { createEvidence, parseEvidence } from "../../../src/domain/evidence.js";
 import { ghidraFunctionDossier } from "../../../src/domain/ghidraValues.fixture.js";
 import { createEvidenceBundle } from "../../../src/domain/evidenceBundle.js";
 import { inspectEvidenceBundle } from "../../../src/application/investigation/InspectEvidenceBundle.js";
+
+cliTest(
+  "inspects Playwright bracketed IPv6 HAR through the compiled CLI without changing its identity",
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-playwright-ipv6-cli-");
+    const fixture = historicalHar();
+    const first = fixture.log.entries[0];
+    if (first === undefined) throw new Error("fixture missing");
+    const bytes = JSON.stringify({
+      log: {
+        ...fixture.log,
+        creator: { name: "Playwright", version: "1.58.2" },
+        entries: [{ ...first, serverIPAddress: "[2001:db8::1]" }],
+      },
+    });
+    const path = join(root, "capture.har");
+    await writeFile(path, bytes);
+    const result = await cli.run({
+      arguments: ["inspect-web-network-capture", path, "har", "--json"],
+    });
+    expect(result.exitCode, result.stdout).toBe(0);
+    const evidence = parseEvidence(result.json);
+    expect(evidence.subject?.digest.sha256).toBe(
+      createHash("sha256").update(bytes).digest("hex"),
+    );
+    expect(evidence.normalized_result).toMatchObject({
+      records: [{ ordinal: 0, reported: { serverIPAddress: "[2001:db8::1]" } }],
+    });
+  },
+);
 
 cliTest(
   "projects opted-in query names through compiled CLI without query values",

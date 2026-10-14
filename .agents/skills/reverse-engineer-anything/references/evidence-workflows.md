@@ -69,3 +69,8 @@ When the connected schema advertises `include_query_parameter_names`, select
 it in the view for distinct observed names with original record ordinals. Query
 values are omitted; the names establish neither required parameters nor a
 complete server schema. Keep the original parent Evidence for exact URLs.
+
+For Playwright 1.58.2 HAR, bracketed IPv6 `serverIPAddress` is preserved as
+reported; REA adapts only the validation copy for this observed producer profile.
+The declaration is not proof of producer identity. Do not manually rewrite the
+capture or treat address spelling normalization as a network observation.
