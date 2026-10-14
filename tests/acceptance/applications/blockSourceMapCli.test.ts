@@ -72,6 +72,7 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
         properties: {
           declared_url: url,
           declared_url_sha256: digest,
+          resolution_status: "resolved",
           resolved_path: url,
           available: true,
         },
@@ -92,7 +93,11 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
       expect.objectContaining({
         relation: "maps_to",
         target_node_id: map?.node_id,
-        properties: { declared_url_sha256: digest, resolved_path: url },
+        properties: {
+          declared_url_sha256: digest,
+          resolution_status: "resolved",
+          resolved_path: url,
+        },
       }),
     );
   },

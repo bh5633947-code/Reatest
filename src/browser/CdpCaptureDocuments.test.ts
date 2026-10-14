@@ -11,6 +11,48 @@ import { inspectWebPageInputSchema } from "../domain/browserObservation.js";
 
 const origin = "https://app.example.test";
 
+it("retains empty node and attribute values from Chrome snapshots", () => {
+  const completeness = new CdpCaptureCompleteness();
+  const generator = captureDom(
+    {
+      strings: [origin + "/app", "#document", "DIV", "#text", "text", "id"],
+      documents: [
+        {
+          documentURL: 0,
+          baseURL: 0,
+          nodes: {
+            nodeType: [9, 1, 3],
+            nodeName: [1, 2, 3],
+            nodeValue: [-1, -1, 4],
+            parentIndex: [-1, 0, 1],
+            attributes: [[], [5, -1], []],
+          },
+        },
+      ],
+    },
+    new Set([origin]),
+    inspectWebPageInputSchema.parse({
+      cdp_endpoint: "http://127.0.0.1:9222",
+      allowed_origins: [origin],
+      target_id: "page-1",
+    }),
+    completeness,
+  );
+  let captured = generator.next([]);
+  while (!captured.done) captured = generator.next([]);
+  expect(
+    captured.value.nodes.map(({ node_name, node_value_length }) => ({
+      node_name,
+      node_value_length,
+    })),
+  ).toEqual([
+    { node_name: "#document", node_value_length: 0 },
+    { node_name: "DIV", node_value_length: 0 },
+    { node_name: "#text", node_value_length: 4 },
+  ]);
+  expect(completeness.snapshot().excluded).toEqual([]);
+});
+
 describe("CDP DOM capture", () => {
   it("preserves node names and parents when aligned arrays are valid", () => {
     const generator = captureDom(
@@ -130,12 +172,12 @@ describe("CDP DOM string and namespace validity", () => {
     { field: "nodeName", index: -1 },
     { field: "nodeName", index: 20 },
     { field: "nodeName", index: 2, malformedString: true },
-    { field: "nodeValue", index: -1 },
+    { field: "nodeValue", index: -2 },
     { field: "nodeValue", index: 20 },
     { field: "nodeValue", index: 5, malformedString: true },
     { field: "attributeName", index: -1 },
     { field: "attributeName", index: 20 },
-    { field: "attributeValue", index: -1 },
+    { field: "attributeValue", index: -2 },
     { field: "attributeValue", index: 20 },
   ] as const)(
     "omits a node when its $field string index is invalid ($index)",

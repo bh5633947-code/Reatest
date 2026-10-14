@@ -779,21 +779,20 @@ describe("native IDA attached operation admission", () => {
     await client.close();
   });
 
-  it("does not admit the headless-only containment and document operations", async () => {
-    const { client, producer } = await fixture();
-    for (const [operation, parameters] of [
-      ["resolve_containing_procedure", { address: "0x1000" }],
-      ["list_documents", {}],
-    ] as const) {
-      const result = await client.execute(operation, parameters);
-
-      expect(result.ok).toBe(false);
-      if (!result.ok)
-        expect(result.error._tag).toBe("AnalysisCapabilityUnavailableError");
-    }
+  it("lists only the admitted document while rejecting headless-only containment", async () => {
+    const { client, producer, target } = await fixture();
+    const result = await client.execute("resolve_containing_procedure", {
+      address: "0x1000",
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok)
+      expect(result.error._tag).toBe("AnalysisCapabilityUnavailableError");
+    const documents = await client.execute("list_documents", {});
+    if (!documents.ok) throw documents.error;
+    expect(documents.value.result).toEqual([target.path]);
     expect(
       producer.calls.some(({ name }) => name === "lookup_funcs"),
-      "nothing is dispatched upstream",
+      "no containment lookup is dispatched upstream",
     ).toBe(false);
     await client.close();
   });

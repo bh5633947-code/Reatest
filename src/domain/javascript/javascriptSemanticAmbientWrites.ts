@@ -16,7 +16,7 @@ import {
   type JavaScriptSemanticAnalysisState,
 } from "./javascriptSemanticState.js";
 import { isImportMetaUrl } from "./javascriptStaticAnalysisHelpers.js";
-import { semanticMutationInitializers } from "./javascriptSemanticMutationInitializers.js";
+import { semanticReadInitializers } from "./javascriptSemanticMutationInitializers.js";
 
 const GLOBAL_OBJECT_NAMES = ["globalThis", "global", "window", "self"];
 
@@ -129,11 +129,8 @@ const createAmbientPathResolver = (
         const initializers = possibleWrites
           ? capture === undefined
             ? binding.initializers
-            : semanticMutationInitializers(
-                binding,
-                capture,
-                state.parentsByNode,
-              ).initializers
+            : semanticReadInitializers(binding, root, state.parentsByNode)
+                .initializers
           : stable === undefined
             ? []
             : [stable];

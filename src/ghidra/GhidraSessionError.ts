@@ -263,7 +263,6 @@ const causeLaunchOutcome = (
   redact: (value: string, incomplete?: boolean) => string,
 ): Record<string, JsonValue> => {
   if (!(cause instanceof GhidraLaunchError)) return {};
-  if (cause.cause instanceof GhidraLaunchSupportError) return {};
   const launchSupport =
     cause.launchSupport.length === 0
       ? {}
@@ -273,6 +272,7 @@ const causeLaunchOutcome = (
             stderr: redact(output.stderr),
           })),
         };
+  if (cause.cause instanceof GhidraLaunchSupportError) return launchSupport;
   const output = cause.capturedOutput;
   if (output === undefined) return launchSupport;
   const stdout = boundedUtf8Text(

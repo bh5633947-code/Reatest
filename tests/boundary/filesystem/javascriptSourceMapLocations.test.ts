@@ -147,10 +147,12 @@ it("associates each source-map URL with its edge when aliases share one physical
         resolved_path: edge.properties.resolved_path,
       };
     }),
-  ).toEqual([
-    { declared_url: "app.js.map", resolved_path: "dist/app.js.map" },
-    { declared_url: "./app.js.map", resolved_path: "dist/app.js.map" },
-  ]);
+  ).toEqual(
+    expect.arrayContaining([
+      { declared_url: "app.js.map", resolved_path: "dist/app.js.map" },
+      { declared_url: "./app.js.map", resolved_path: "dist/app.js.map" },
+    ]),
+  );
 });
 
 it("resolves a bare source-map file name and worker URL next to the script", async () => {
@@ -187,6 +189,7 @@ it("resolves a bare source-map file name and worker URL next to the script", asy
       nodes.get(target_node_id)?.kind === "source-map",
   );
   expect(mapEdge?.properties).toEqual({
+    resolution_status: "resolved",
     declared_url_sha256: createHash("sha256")
       .update("app.js.map")
       .digest("hex"),

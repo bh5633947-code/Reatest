@@ -484,6 +484,7 @@ it("preserves complete line-comment source-map URLs through CLI and MCP", async 
         properties: {
           declared_url: declaredUrl,
           declared_url_sha256: digest,
+          resolution_status: "resolved",
           resolved_path: "app.js.map",
           available: true,
         },
@@ -506,6 +507,7 @@ it("preserves complete line-comment source-map URLs through CLI and MCP", async 
         target_node_id: map?.node_id,
         properties: {
           declared_url_sha256: digest,
+          resolution_status: "resolved",
           resolved_path: "app.js.map",
         },
       }),
@@ -564,6 +566,7 @@ it("resolves source-map URL paths once without changing their declarations", asy
         properties: {
           declared_url: declaredUrl,
           declared_url_sha256: digest,
+          resolution_status: "resolved",
           resolved_path: path,
           available: true,
         },
@@ -587,7 +590,11 @@ it("resolves source-map URL paths once without changing their declarations", asy
       expect.objectContaining({
         relation: "maps_to",
         target_node_id: map?.node_id,
-        properties: { declared_url_sha256: digest, resolved_path: path },
+        properties: {
+          declared_url_sha256: digest,
+          resolution_status: "resolved",
+          resolved_path: path,
+        },
       }),
     );
   }
@@ -1577,7 +1584,7 @@ it("retains bundled isolated-world contextBridge APIs through dedicated and gene
           world_id: { status: "literal", value: 1001, expression: null },
           api_key: "isolatedApi",
           members: ["ping"],
-          resolution_basis: "wrapper-substitution",
+          resolution_basis: "direct-syntax",
         }),
         evidence: expect.objectContaining({
           location: expect.objectContaining({

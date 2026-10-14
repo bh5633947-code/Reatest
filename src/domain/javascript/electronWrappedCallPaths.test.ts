@@ -157,7 +157,7 @@ describe("wrapped contextBridge exposure methods", () => {
         },
         api_key: "isolatedApi",
         members: ["ping"],
-        resolution_basis: "wrapper-substitution",
+        api_status: "object-literal",
       }),
     );
     expect(result.parse_status).toBe("partial");

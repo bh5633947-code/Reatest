@@ -130,6 +130,21 @@ it("still invalidates escaped process configuration containers", () => {
   expect(ir.configurationOperations).toEqual([]);
 });
 
+it.each([
+  "Number(process.env.PORT); Number(process.argv[2]);",
+  "function run() { Number(process.env.PORT); Number(process.argv[2]); }",
+  "const proc = require('node:process'); function run() { Number(proc.env.PORT); Number(proc.argv[2]); }",
+  "for (const item of items) { Number(process.env.PORT); Number(process.argv[2]); }",
+])("retains scalar configuration reads passed to calls: %s", (source) => {
+  const ir = analyzeJavaScriptSemantics(source);
+  expect(
+    ir.configurationOperations.map(({ kind, key }) => ({ kind, key })),
+  ).toEqual([
+    { kind: "environment", key: "PORT" },
+    { kind: "argv", key: "2" },
+  ]);
+});
+
 it("retains direct require effects without poisoning later cached receivers", () => {
   const ir = analyzeJavaScriptSemantics(`
     require('node:fs').readFileSync('first');
