@@ -13,4 +13,6 @@ export const MCP_STARTUP_POLICY = {
   toolsListBudgetMs: 5_000,
   firstCatalogBudgetMs: 20_000,
   doctorDeadlineMs: 30_000,
+  // Startup diagnostics are a report preview, not an unbounded child log.
+  doctorStderrMaxBytes: 64 * 1024,
 } as const;

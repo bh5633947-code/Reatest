@@ -3,6 +3,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { Formatter, Help, z } from "incur";
 import { performance } from "node:perf_hooks";
 import { resolve } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 
 import { CATALOG_IDENTITY } from "./catalogIdentity.js";
 import { PROMPT_CONTRACTS } from "./contracts/promptContracts.js";
@@ -483,7 +484,8 @@ const targetFreeEnvironment = (
 };
 
 const captureStderr = () => {
-  const chunks: Buffer[] = [];
+  const prefix = Buffer.alloc(MCP_STARTUP_POLICY.doctorStderrMaxBytes);
+  let retainedBytes = 0;
   let bytes = 0;
   return {
     append(chunk: unknown) {
@@ -491,12 +493,19 @@ const captureStderr = () => {
         ? chunk
         : Buffer.from(String(chunk), "utf8");
       bytes += buffer.byteLength;
-      chunks.push(Buffer.from(buffer));
+      retainedBytes += buffer.copy(prefix, retainedBytes);
     },
-    value: () => ({
-      stderr: Buffer.concat(chunks, bytes).toString("utf8"),
-      stderr_bytes: bytes,
-    }),
+    value: () => {
+      const truncated = bytes > retainedBytes;
+      const decoder = new StringDecoder("utf8");
+      const text = decoder.write(prefix.subarray(0, retainedBytes));
+      return {
+        // A budget-cut code point is omitted rather than rendered as U+FFFD.
+        stderr: text + (truncated ? "" : decoder.end()),
+        stderr_bytes: bytes,
+        stderr_truncated: truncated,
+      };
+    },
   };
 };
 

@@ -155,6 +155,94 @@ describe("production MCP doctor probe validation", () => {
 });
 
 describe("production MCP doctor child lifecycle", () => {
+  it.each([
+    { name: "empty", size: 0, suffix: "" },
+    { name: "under budget", size: 65_535, suffix: "" },
+    { name: "exact budget", size: 65_536, suffix: "" },
+    { name: "complete UTF-8", size: 65_530, suffix: "😀" },
+    { name: "over budget", size: 65_537, suffix: "" },
+    { name: "split UTF-8 boundary", size: 65_535, suffix: "😀tail" },
+  ])(
+    "bounds $name startup stderr while draining the child",
+    async ({ size, suffix }) => {
+      const text = "x".repeat(size) + suffix;
+      const result = await runProductionMcpDoctor({
+        command: process.execPath,
+        args: [
+          "--input-type=module",
+          "-e",
+          'await new Promise(resolve => process.stderr.write("x".repeat(Number(process.argv[1])), resolve)); await new Promise(resolve => process.stderr.write(process.argv[2], resolve)); process.exitCode = 23;',
+          String(size),
+          suffix,
+        ],
+        cwd: process.cwd(),
+        environment: { PATH: process.env.PATH ?? "" },
+        deadlineMs: 5_000,
+      });
+      expect(result.healthy).toBe(false);
+      expect(result.checks).toContainEqual({
+        name: "transport",
+        ok: false,
+        detail: expect.any(String),
+      });
+      expect(Buffer.byteLength(result.diagnostics.stderr)).toBeLessThanOrEqual(
+        65_536,
+      );
+      expect(result.diagnostics).toMatchObject({
+        stderr_bytes: Buffer.byteLength(text),
+        stderr_truncated: Buffer.byteLength(text) > 65_536,
+        stderr:
+          "x".repeat(Math.min(size, 65_536)) +
+          (Buffer.byteLength(text) <= 65_536 ? suffix : ""),
+      });
+    },
+  );
+
+  it.each([false, true])(
+    "bounds CLI diagnostics with full-output=%s",
+    async (fullOutput) => {
+      const root = await createTestTempDirectory("rea-mcp-doctor-stderr-");
+      const dispatcherPath = join(root, "noisy.mjs");
+      await writeFile(
+        dispatcherPath,
+        'for (let i = 0; i < 64; i++) await new Promise(resolve => process.stderr.write("x".repeat(65_536), resolve)); process.exitCode = 23;\n',
+      );
+      const result = await runProductionMcpDoctorCli(
+        ["--json", ...(fullOutput ? ["--full-output"] : [])],
+        { dispatcherPath, packageRoot: root },
+      );
+      expect(result.exitCode).toBe(1);
+      const output = JSON.parse(result.output);
+      if (fullOutput) expect(output.ok).toBe(false);
+      expect(fullOutput ? output.error : output).toMatchObject({
+        healthy: false,
+        diagnostics: {
+          stderr: "x".repeat(65_536),
+          stderr_bytes: 64 * 65_536,
+          stderr_truncated: true,
+        },
+      });
+    },
+  );
+
+  it("preserves replacement decoding for malformed untruncated stderr", async () => {
+    const result = await runProductionMcpDoctor({
+      command: process.execPath,
+      args: [
+        "-e",
+        "process.stderr.write(Buffer.from([0xff, 0xe2, 0x82])); process.exitCode = 23;",
+      ],
+      cwd: process.cwd(),
+      environment: { PATH: process.env.PATH ?? "" },
+      deadlineMs: 5_000,
+    });
+    expect(result.diagnostics).toEqual({
+      stderr: Buffer.from([0xff, 0xe2, 0x82]).toString("utf8"),
+      stderr_bytes: 3,
+      stderr_truncated: false,
+    });
+  });
+
   it("captures startup exit diagnostics", async () => {
     const result = await runProductionMcpDoctor({
       command: process.execPath,
