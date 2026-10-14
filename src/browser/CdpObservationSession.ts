@@ -283,6 +283,7 @@ class TimelineCapture {
       detail: null,
     });
     if (destination.scope !== "approved") {
+      this.finalUrl = null;
       this.completeness.exclude("timeline", "out_of_target_scope");
       this.end("target_left_scope");
     }
