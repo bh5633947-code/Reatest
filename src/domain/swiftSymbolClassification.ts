@@ -1,3 +1,24 @@
+/**
+ * Prefixes `swift-demangle` accepts as mangled names: Swift 4 (`_T0`), 4.1+
+ * (`$S`), 5+ (`$s`), macro file names (`@__swiftmacro_`) and Embedded Swift
+ * (`$e`). Legacy `_T` is omitted because it is also an ordinary C symbol
+ * spelling such as `_Tprintf`.
+ */
+const SWIFT_MANGLING_PREFIXES = [
+  "_T0",
+  "$S",
+  "_$S",
+  "$s",
+  "_$s",
+  "@__swiftmacro_",
+  "$e",
+  "_$e",
+] as const;
+
+/** Recognize a name the Swift demangler accepts as a mangled symbol. */
+export const isSwiftMangledSymbolName = (name: string): boolean =>
+  SWIFT_MANGLING_PREFIXES.some((prefix) => name.startsWith(prefix));
+
 const LEGACY_CATEGORIES = [
   ["_TtC", "classes"],
   ["_TtV", "structs"],
