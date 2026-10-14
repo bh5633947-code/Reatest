@@ -10,8 +10,12 @@ import { Ajv2020 } from "ajv/dist/2020.js";
 import { expect, it as runtimeTest } from "vitest";
 import { z } from "zod";
 import { parseEvidence } from "../../../src/domain/evidence.js";
-import { webNetworkCaptureSchema } from "../../../src/domain/webNetworkCapture.js";
+import {
+  WEB_NETWORK_CAPTURE_LIMITS,
+  webNetworkCaptureSchema,
+} from "../../../src/domain/webNetworkCapture.js";
 import { connectLocalToolsMcp } from "../../fixtures/localToolsMcp.js";
+import { parseMcpToolError } from "../../fixtures/mcpToolError.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 
 import {
@@ -478,12 +482,42 @@ it.each([
   expect(JSON.parse(result.stdout).category).toBe(
     ["encrypted", "unknown-member", "dtd"].includes(variant)
       ? "unsupported_provider"
-      : variant === "expanded-limit"
-        ? "execution_failure"
-        : "invalid_input",
+      : "invalid_input",
   );
-  if (variant === "expanded-limit")
-    expect(JSON.parse(result.stdout).code).toBe("unreadable_output");
+  // Expanded size is a caller-correctable input bound, not a decoder failure.
+  if (variant === "expanded-limit") {
+    const error = JSON.parse(result.stdout);
+    expect(error.code).toBe("invalid_request");
+    expect(error.details.issues).toEqual([
+      expect.objectContaining({
+        path: ["capture_path", ""],
+        reason: "out_of_range",
+        expected: {
+          maximum_expanded_capture_bytes: WEB_NETWORK_CAPTURE_LIMITS.inputBytes,
+        },
+      }),
+    ]);
+    const { call } = await connectLocalToolsMcp();
+    const response = await call("inspect_web_network_capture", {
+      capture_path: path,
+      format: "saz",
+      record_ordinals: [0],
+    });
+    expect(response.isError).toBe(true);
+    const mcpFailure = parseMcpToolError(response);
+    expect(mcpFailure).toMatchObject({
+      error: {
+        code: error.code,
+        category: error.category,
+        details: error.details,
+      },
+    });
+    expect(error).not.toHaveProperty("normalized_result");
+    expect(error.details).not.toHaveProperty("partial_observation");
+    expect(mcpFailure).not.toHaveProperty("normalized_result");
+    expect(mcpFailure.error.details).not.toHaveProperty("partial_observation");
+    expect(await readFile(path)).toEqual(bytes);
+  }
   expect(JSON.stringify(result)).not.toContain("malformed-private-input");
 });
 

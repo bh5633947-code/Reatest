@@ -8,6 +8,7 @@ import {
   AnalysisCancelledError,
   AnalysisOutputError,
 } from "../../../src/domain/analysisErrorCore.js";
+import { parseEvidence } from "../../../src/domain/evidence.js";
 import type { RelationshipCoverage } from "../../../src/domain/relationshipCoverage.js";
 import { err, ok as resultOk } from "../../../src/domain/result.js";
 
@@ -32,7 +33,7 @@ const relationshipExecution = (
     ),
   );
 
-describe("enhanced MCP tools", () => {
+describe("enhanced MCP relationship limitations", () => {
   it("preserves per-node relationship limitations and keeps observed edges", async () => {
     const limitation = "ARM64 call targets are only partially resolved.";
     const client = await connect({
@@ -91,9 +92,12 @@ describe("enhanced MCP tools", () => {
       },
     });
   });
+});
 
+describe("enhanced MCP provider caveats", () => {
   it("keeps generic provider caveats visible without truncating complete relationships", async () => {
     const caveat = "Decompiler output may omit indirect calls.";
+    const leafCaveat = "Source signatures are unavailable.";
     const client = await connect({
       execute: async (name, arguments_) => {
         if (name === "procedure_address")
@@ -102,7 +106,7 @@ describe("enhanced MCP tools", () => {
           throw new Error(`Unexpected operation: ${name}`);
         return relationshipExecution(
           arguments_.procedure === "0x1" ? ["0x2"] : [],
-          [caveat],
+          arguments_.procedure === "0x1" ? [caveat] : [caveat, leafCaveat],
           { status: "complete" },
         );
       },
@@ -122,12 +126,17 @@ describe("enhanced MCP tools", () => {
             { status: "ok", relationship_coverage: { status: "complete" } },
           ],
         },
-        limitations: [caveat],
+        limitations: [caveat, leafCaveat],
       },
     });
-    expect(JSON.stringify(graph.structuredContent)?.split(caveat)).toHaveLength(
-      2,
-    );
+    const evidence = parseEvidence(graph.structuredContent);
+    const normalized = JSON.stringify(evidence.normalized_result);
+    for (const item of [caveat, leafCaveat]) {
+      expect(normalized.split(item)).toHaveLength(2);
+      expect(
+        evidence.limitations.filter((limit) => limit === item),
+      ).toHaveLength(1);
+    }
 
     const trace = await client.callTool({
       name: "trace_call_path",
@@ -141,6 +150,11 @@ describe("enhanced MCP tools", () => {
         relationship_coverage: { "0x1": { status: "complete" } },
       },
     });
+    const traceEvidence = parseEvidence(trace.structuredContent);
+    expect(
+      traceEvidence.limitations.filter((item) => item === caveat),
+    ).toHaveLength(1);
+    expect(JSON.stringify(traceEvidence)).not.toContain(leafCaveat);
   });
 
   it("keeps unclassified legacy caveats on nodes with unknown coverage", async () => {
