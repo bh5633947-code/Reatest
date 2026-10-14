@@ -67,6 +67,18 @@ mcpTest(
     const app = await fixtureApp();
     const client = await openProductionTarget(mcp, onTestFinished, app);
 
+    const invalidDetail = await client.callTool({
+      name: "decode_interface_builder",
+      arguments: { detail: "brief" },
+    });
+    expect(invalidDetail.isError).toBe(true);
+    expect(invalidDetail.content).toEqual([
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringMatching(/Input validation error:.*detail/su),
+      }),
+    ]);
+
     // Summary first: its own retained parent must serve every later page.
     const summarized = await client.callTool({
       name: "decode_interface_builder",

@@ -103,6 +103,11 @@ architectures, build_metadata, load_commands, dependencies, imports, exports,
 segments and provenance. `source_exhaustive: false` means unreturned symbols
 may exist.
 
+`decode_interface_builder` graphs are often several megabytes and can exceed the
+MCP response budget. Select `detail: "summary"` for every decoded document and
+node/edge counts, then page `view: {kind: "interface-builder", collection:
+"edges", document: "<documents[].relative_path>", offset: 0, limit: 64}`.
+
 To see which functions or Objective-C methods a Mach-O actually calls in one
 run, use `observe_native_calls` with explicit breakpoints and a bounded
 `duration_ms`/`max_events`. It launches a new process under LLDB, so the target
