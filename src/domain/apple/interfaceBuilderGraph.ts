@@ -128,6 +128,7 @@ export const buildInterfaceBuilderAnalysis = (input: {
     let hierarchyEdgeCount = 0;
     let documentOmittedConnections = 0;
     let documentOmittedHierarchyEdges = 0;
+    let hierarchyTruncated = false;
     const objectNodeId = (objectId: string): string =>
       graphId("object", [objectId]);
     const addEdge = (
@@ -141,6 +142,7 @@ export const buildInterfaceBuilderAnalysis = (input: {
       ) {
         truncated = true;
         if (isHierarchy) {
+          hierarchyTruncated = true;
           documentOmittedHierarchyEdges += 1;
         } else {
           omittedConnections += 1;
@@ -160,9 +162,11 @@ export const buildInterfaceBuilderAnalysis = (input: {
       description: string,
       reason?: string,
     ) => {
+      const isHierarchy = relation === "contains" && id.includes(":hierarchy:");
       if (!nodes.has(from)) {
         truncated = true;
-        if (relation === "contains" && id.includes(":hierarchy:")) {
+        if (isHierarchy) {
+          hierarchyTruncated = true;
           documentOmittedHierarchyEdges += 1;
         } else {
           omittedConnections += 1;
@@ -172,7 +176,10 @@ export const buildInterfaceBuilderAnalysis = (input: {
       }
       const evidence = evidenceFor(description);
       const unresolvedEndpoint = to !== null && !nodes.has(to);
-      if (unresolvedEndpoint) truncated = true;
+      if (unresolvedEndpoint) {
+        truncated = true;
+        if (isHierarchy) hierarchyTruncated = true;
+      }
       const edgeTo = unresolvedEndpoint ? null : to;
       const edgeReason = unresolvedEndpoint
         ? "endpoint_omitted_by_object_limit"
@@ -198,11 +205,10 @@ export const buildInterfaceBuilderAnalysis = (input: {
               evidence,
               limitations: [],
             },
-        relation === "contains" && id.includes(":hierarchy:"),
+        isHierarchy,
       );
     };
     let hierarchyCount = 0;
-    let hierarchyTruncated = false;
     const visitHierarchy = (
       initial: unknown,
       initialParentId: string,
@@ -421,6 +427,14 @@ export const buildInterfaceBuilderAnalysis = (input: {
       Math.max(0, parsed.connections.length - input.limits.max_connections) +
       parserOmittedConnections +
       parsed.unresolvedConnections;
+    const hierarchyStatus =
+      parserOmittedHierarchyReferences > 0
+        ? "partial"
+        : parsed.hierarchy.length === 0
+          ? "unsupported"
+          : hierarchyTruncated
+            ? "partial"
+            : "complete";
     summaries.push({
       relative_path: document.relativePath,
       archive_sha256: document.archiveSha256,
@@ -430,10 +444,7 @@ export const buildInterfaceBuilderAnalysis = (input: {
         parsed.connections.length +
         parserOmittedConnections +
         parsed.unresolvedConnections,
-      hierarchy_complete:
-        parsed.hierarchy.length > 0 &&
-        !hierarchyTruncated &&
-        parserOmittedHierarchyReferences === 0,
+      hierarchy_complete: hierarchyStatus === "complete",
     });
     coverage.push(
       {
@@ -474,20 +485,13 @@ export const buildInterfaceBuilderAnalysis = (input: {
       },
       {
         facet: `hierarchy:${document.relativePath}`,
-        status:
-          parserOmittedHierarchyReferences > 0
-            ? "partial"
-            : parsed.hierarchy.length === 0
-              ? "unsupported"
-              : hierarchyTruncated || documentOmittedHierarchyEdges > 0
-                ? "partial"
-                : "complete",
+        status: hierarchyStatus,
         reason:
           parserOmittedHierarchyReferences > 0
             ? "archive_hierarchy_references_missing"
             : parsed.hierarchy.length === 0
               ? "archive_hierarchy_not_decoded"
-              : hierarchyTruncated || documentOmittedHierarchyEdges > 0
+              : hierarchyTruncated
                 ? "graph_limit_reached"
                 : null,
         examined: hierarchyCount,
