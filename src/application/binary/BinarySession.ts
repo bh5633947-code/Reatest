@@ -339,15 +339,14 @@ export class BinarySession
         ),
       );
     }
-    this.#active = {
+    this.#activate({
       target,
       client,
       profile,
       route,
       runId,
       nativeSourceAdmitted: false,
-    };
-    this.#clearRuntimeAvailability();
+    });
     this.resetSnapshotInvalidation();
     if (options.snapshot === undefined) {
       if (profile === null) this.clearSnapshot();
@@ -916,6 +915,11 @@ export class BinarySession
     }
   }
 
+  #activate(binding: SessionBinding): void {
+    this.#active = binding;
+    this.#clearRuntimeAvailability();
+  }
+
   async #restore(
     previous: SessionBinding | undefined,
   ): Promise<Result<null, AnalysisError>> {
@@ -924,14 +928,14 @@ export class BinarySession
     const client = previous.route.createClient(previous.target, { runId });
     const started = await client.execute("health", {});
     if (started.ok) {
-      this.#active = {
+      this.#activate({
         target: previous.target,
         client,
         profile: previous.profile,
         route: previous.route,
         runId,
         nativeSourceAdmitted: false,
-      };
+      });
       return ok(null);
     }
     const closed = await this.#retireClient(client, previous.route.identity.id);

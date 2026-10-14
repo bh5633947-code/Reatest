@@ -4,6 +4,7 @@ import {
   type AnalysisProvider,
 } from "../../../src/application/AnalysisProvider.js";
 import type { BinarySession } from "../../../src/application/binary/BinarySession.js";
+import { buildCapabilityInventory } from "../../../src/application/CapabilityInventory.js";
 import { parseBinaryTarget } from "../../../src/application/BinaryTargetResolver.js";
 import type { JsonValue } from "../../../src/domain/jsonValue.js";
 import type { RecordUnknownInput } from "../../../src/domain/residualUnknown.js";
@@ -34,6 +35,7 @@ import {
 } from "node:fs/promises";
 import { dirname, extname, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 const client = (fail = false): AnalysisClient => ({
   execute: () => Promise.resolve(fail ? err(new HopperStartError()) : ok(null)),
@@ -919,6 +921,196 @@ describe("snapshot cache eligibility", () => {
       value: { entries: [] },
     });
     await session.close();
+  });
+});
+
+const runtimeFailure =
+  "ProviderAdapterError: Provider fixture adapter failed during address_name";
+const runId = (status: JsonValue): string =>
+  z.object({ analysis_run: z.object({ run_id: z.string() }) }).parse(status)
+    .analysis_run.run_id;
+const expectProviderAvailability = (
+  status: JsonValue,
+  available: boolean,
+  reason: string | null,
+): void => {
+  expect(status).toMatchObject({
+    capabilities: expect.arrayContaining([
+      expect.objectContaining({
+        provider: expect.objectContaining({ id: "fixture" }),
+        groups: expect.arrayContaining(
+          ["address_name", "set_address_name"].map((operation) =>
+            expect.objectContaining({
+              operations: expect.arrayContaining([operation]),
+              available,
+              reason,
+            }),
+          ),
+        ),
+      }),
+    ]),
+  });
+  const inventory = buildCapabilityInventory(status, {
+    processCaptureEnabled: false,
+  });
+  for (const name of ["address_name", "set_address_name"])
+    expect(inventory.find((tool) => tool.name === name)).toMatchObject({
+      available,
+      reason: available ? "available" : "provider_unavailable",
+      remediation: reason,
+    });
+};
+const availabilityFixture = () => {
+  const closing = createDeferred<void>();
+  const release = createDeferred<void>();
+  const clients: { fail: boolean; closed: number; calls: number }[] = [];
+  let pauseClose = false;
+  const provider = createCacheProvider([]);
+  provider.createClient = () => {
+    const state = { fail: false, closed: 0, calls: 0 };
+    clients.push(state);
+    return {
+      execute: (operation) => {
+        if (operation === "health") return Promise.resolve(ok(null));
+        state.calls += 1;
+        return Promise.resolve(
+          state.fail
+            ? err(new ProviderAdapterError("fixture", operation))
+            : ok("observed-name"),
+        );
+      },
+      operationHealthSnapshot: () => ({
+        state: "idle",
+        stage: null,
+        retryAction: null,
+        exitCode: null,
+        requests: [],
+      }),
+      close: async () => {
+        state.closed += 1;
+        if (pauseClose && clients.length === 1 && state.closed === 1) {
+          closing.resolve();
+          await release.promise;
+        }
+        return resultOk(null);
+      },
+    };
+  };
+  return {
+    session: createTestBinarySession(provider),
+    clients,
+    closing,
+    release,
+    pauseNextClose: () => {
+      pauseClose = true;
+    },
+  };
+};
+
+describe("恢复与复用客户端的工具可用性", () => {
+  it("取消切换后立即恢复新运行的能力状态并保留调查历史", async () => {
+    const [first, second] = await createBinarySessionTargets();
+    const { session, clients, closing, release, pauseNextClose } =
+      availabilityFixture();
+    try {
+      await openAndExecuteAddressName(session, first, { address: "0x1000" });
+      recordNetworkReachabilityUnknown(session, "medium");
+      const originalTarget = session.activeTarget();
+      const originalRun = runId(session.status());
+      const originalEvidence = session.exportEvidenceBundle();
+      const originalUnknowns = session.listUnknowns();
+      const previous = clients[0];
+      if (previous === undefined) throw new Error("未创建原始客户端");
+      previous.fail = true;
+      expect(await session.execute("address_name", {})).toMatchObject({
+        ok: false,
+        error: { _tag: "ProviderAdapterError" },
+      });
+      expectProviderAvailability(session.status(), false, runtimeFailure);
+
+      const notifications: JsonValue[] = [];
+      session.onAvailabilityChanged(() => {
+        notifications.push(session.status());
+      });
+      pauseNextClose();
+      const controller = new AbortController();
+      const switching = session.open(second, { signal: controller.signal });
+      await closing.promise;
+      controller.abort();
+      release.resolve();
+      expect(await switching).toMatchObject({
+        ok: false,
+        error: { _tag: "AnalysisCancelledError" },
+      });
+
+      // 新查询之前，发现结果及通知必须已经属于恢复后的运行。
+      const restoredStatus = session.status();
+      const restoredRun = runId(restoredStatus);
+      expect(restoredRun).not.toBe(originalRun);
+      expect(session.activeTarget()).toEqual(originalTarget);
+      expect(clients).toHaveLength(1);
+      expect(previous.closed).toBe(1);
+      expectProviderAvailability(restoredStatus, true, null);
+      expect(notifications).toEqual([restoredStatus]);
+      expect(session.exportEvidenceBundle()).toEqual(originalEvidence);
+      expect(session.listUnknowns()).toEqual(originalUnknowns);
+
+      const queried = await session.execute("address_name", {});
+      if (!queried.ok) throw queried.error;
+      expect(queried.value.result).toBe("observed-name");
+      expect(clients).toHaveLength(2);
+      const restored = clients[1];
+      if (restored === undefined) throw new Error("未创建恢复后的客户端");
+      expect(restored.calls).toBe(1);
+      restored.fail = true;
+      expect(await session.execute("address_name", {})).toMatchObject({
+        ok: false,
+        error: { _tag: "ProviderAdapterError" },
+      });
+      expectProviderAvailability(session.status(), false, runtimeFailure);
+      expect(runId(session.status())).toBe(restoredRun);
+      expect(notifications).toHaveLength(2);
+    } finally {
+      release.resolve();
+      await session.close();
+    }
+  });
+
+  it("同目标存活客户端复用与提前取消不会清除原运行的失败状态", async () => {
+    const [first, second] = await createBinarySessionTargets();
+    const { session, clients } = availabilityFixture();
+    try {
+      await openAndExecuteAddressName(session, first, {});
+      const original = clients[0];
+      if (original === undefined) throw new Error("未创建原始客户端");
+      original.fail = true;
+      expect(await session.execute("address_name", {})).toMatchObject({
+        ok: false,
+        error: { _tag: "ProviderAdapterError" },
+      });
+      const originalStatus = session.status();
+      const notifications = vi.fn();
+      session.onAvailabilityChanged(notifications);
+      const reopened = await session.open(first);
+      if (!reopened.ok) throw reopened.error;
+      expect(session.status()).toEqual(originalStatus);
+      const controller = new AbortController();
+      controller.abort();
+      const cancelled = await session.open(second, {
+        signal: controller.signal,
+      });
+      expect(cancelled).toMatchObject({
+        ok: false,
+        error: { _tag: "AnalysisCancelledError" },
+      });
+      expect(session.status()).toEqual(originalStatus);
+      expectProviderAvailability(session.status(), false, runtimeFailure);
+      expect(clients).toHaveLength(1);
+      expect(original.closed).toBe(0);
+      expect(notifications).not.toHaveBeenCalled();
+    } finally {
+      await session.close();
+    }
   });
 });
 
