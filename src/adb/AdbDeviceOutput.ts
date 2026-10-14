@@ -42,6 +42,7 @@ const metadataValue = (remainder: string, key: string): string | null => {
  */
 export const parseAdbDevicesOutput = (
   stdout: string,
+  stderr = "",
 ): {
   devices: readonly AdbDeviceEntry[];
   unparsedLines: readonly string[];
@@ -104,6 +105,17 @@ export const parseAdbDevicesOutput = (
             ? "usb_transport"
             : "none",
     });
+  }
+  if (!daemonStarted && stderr !== "") {
+    for (const rawLine of stderr.split(/\r?\n/u)) {
+      const line = rawLine.trimEnd();
+      if (line.startsWith("* daemon")) {
+        if (line.includes("started successfully")) {
+          daemonStarted = true;
+          break;
+        }
+      }
+    }
   }
   return { devices, unparsedLines, daemonStarted };
 };

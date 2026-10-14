@@ -70,6 +70,47 @@ describe("parseAdbDevicesOutput", () => {
     expect(devices).toHaveLength(1);
   });
 
+  it("recognizes daemon startup notices emitted on stderr", () => {
+    const stdout = [
+      "List of devices attached",
+      "emulator-5554          device transport_id:1",
+      "",
+    ].join("\n");
+    const stderr = [
+      "* daemon not running; starting now at tcp:5037",
+      "* daemon started successfully",
+      "",
+    ].join("\n");
+    const { devices, daemonStarted, unparsedLines } = parseAdbDevicesOutput(
+      stdout,
+      stderr,
+    );
+    expect(daemonStarted).toBe(true);
+    expect(unparsedLines).toEqual([]);
+    expect(devices).toHaveLength(1);
+  });
+
+  it("ignores non-startup lines and device strings on stderr", () => {
+    const stdout = [
+      "List of devices attached",
+      "emulator-5554          device transport_id:1",
+      "",
+    ].join("\n");
+    const stderr = [
+      "adb: warning: some transport warning",
+      "emulator-5556          device transport_id:2",
+      "",
+    ].join("\n");
+    const { devices, daemonStarted, unparsedLines } = parseAdbDevicesOutput(
+      stdout,
+      stderr,
+    );
+    expect(daemonStarted).toBe(false);
+    expect(unparsedLines).toEqual([]);
+    expect(devices).toHaveLength(1);
+    expect(devices[0]?.serial).toBe("emulator-5554");
+  });
+
   it("keeps non-device states such as unauthorized and offline", () => {
     const output = [
       "List of devices attached",
