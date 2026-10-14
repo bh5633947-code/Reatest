@@ -29,7 +29,7 @@ interface DoctorProviderState {
 interface DoctorScopeInput {
   readonly checks: readonly DoctorCheck[];
   readonly registrations: readonly ClientRegistrationStatus[];
-  readonly skillState: "aligned" | "stale" | "missing";
+  readonly skillState: "aligned" | "stale" | "missing" | "unmanaged";
   readonly providers: DoctorProviderState;
   readonly scope: DoctorScopeReport;
 }
@@ -188,7 +188,14 @@ const selectedSkillCheck = (
     classification: state === "aligned" ? "healthy" : "config_drift",
     ...(state === "aligned"
       ? { detail: "Installed REA skill identity is aligned." }
-      : { remediation: "Run rea setup to update the installed REA skill." }),
+      : state === "unmanaged"
+        ? {
+            detail:
+              "Skill directory is a symbolic link; REA does not follow it.",
+            remediation:
+              "Replace the symbolic-link skill directory with a real directory, then run rea setup to install a managed copy.",
+          }
+        : { remediation: "Run rea setup to update the installed REA skill." }),
   };
 
 const doctorProviderCheckName = (providerId: string, name: string): boolean =>

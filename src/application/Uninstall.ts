@@ -21,6 +21,7 @@ import {
   MANAGED_SKILL_FILES,
   readSkillFile,
   skillDestinations,
+  symbolicLinkSkillReason,
 } from "./SetupSkill.js";
 import { isOwnedClientRegistrationCommand } from "./ClientRegistrationIdentity.js";
 import { dshDocument } from "./DshCordisPatch.js";
@@ -690,7 +691,7 @@ const inspectManagedSkill = async (
       : item(name, "failed", "Skill directory could not be inspected.");
   }
   if (root.isSymbolicLink())
-    return item(name, "retained", "Skill directory is a symbolic link.");
+    return item(name, "retained", symbolicLinkSkillReason);
   if (root.isDirectory?.() !== true)
     return item(name, "retained", "Skill path is not a directory.");
 

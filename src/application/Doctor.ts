@@ -148,7 +148,7 @@ interface DoctorIdentity {
   readonly skill: {
     readonly installed_version: string | null;
     readonly installed_tool_count: number | null;
-    readonly state: "aligned" | "stale" | "missing";
+    readonly state: "aligned" | "stale" | "missing" | "unmanaged";
     readonly remediation: string | null;
   };
   readonly registrations: readonly ClientRegistrationStatus[];
@@ -284,6 +284,7 @@ const collectDoctorIdentity = async (
   const installedSkillIdentity =
     await host.installedSkillIdentity?.(skillClientIds);
   const skillAligned = skillIdentityAligned(installedSkillIdentity);
+  const skillUnmanaged = skillIdentityUnmanaged(installedSkillIdentity);
   return {
     checks: [
       ...(skillAligned ? [] : [skillIdentityCheck(installedSkillIdentity)]),
@@ -311,15 +312,18 @@ const collectDoctorIdentity = async (
       skill: {
         installed_version: installedSkillIdentity?.version ?? null,
         installed_tool_count: installedSkillIdentity?.toolCount ?? null,
-        state:
-          installedSkillIdentity === undefined
+        state: skillUnmanaged
+          ? "unmanaged"
+          : installedSkillIdentity === undefined
             ? "missing"
             : skillAligned
               ? "aligned"
               : "stale",
         remediation: skillAligned
           ? null
-          : "Run rea setup to update the installed REA skill.",
+          : skillUnmanaged
+            ? "Replace the symbolic-link skill directory with a real directory, then run rea setup to install a managed copy."
+            : "Run rea setup to update the installed REA skill.",
       },
       registrations,
     },
@@ -333,6 +337,14 @@ const skillIdentityAligned = (
   identity.toolCount === CATALOG_IDENTITY.counts.mcp_tools &&
   identity.canonical;
 
+/** True when every selected skill destination is a link REA does not follow. */
+const skillIdentityUnmanaged = (
+  identity: InstalledSkillIdentity | undefined,
+): boolean =>
+  identity !== undefined &&
+  identity.version === null &&
+  (identity.symbolicLinkRoots?.length ?? 0) > 0;
+
 const skillIdentityCheck = (
   identity: InstalledSkillIdentity | undefined,
 ): DoctorCheck => ({
@@ -342,8 +354,12 @@ const skillIdentityCheck = (
   detail:
     identity === undefined
       ? "Installed REA skill identity is missing."
-      : "Installed REA skill identity is stale.",
-  remediation: "Run rea setup to update the installed REA skill.",
+      : skillIdentityUnmanaged(identity)
+        ? `Skill directory is a symbolic link (${identity.symbolicLinkRoots?.join(", ")}); REA does not follow it.`
+        : "Installed REA skill identity is stale.",
+  remediation: skillIdentityUnmanaged(identity)
+    ? "Replace the symbolic-link skill directory with a real directory, then run rea setup to install a managed copy."
+    : "Run rea setup to update the installed REA skill.",
 });
 
 const registrationCheck = (

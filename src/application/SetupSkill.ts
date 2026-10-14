@@ -178,6 +178,11 @@ export interface InstalledSkillIdentity {
   readonly version: string | null;
   readonly toolCount: number | null;
   readonly canonical: boolean;
+  /**
+   * Present when every selected destination root is a symbolic link REA does
+   * not follow; mixed selections answer from their managed roots instead.
+   */
+  readonly symbolicLinkRoots?: readonly string[];
 }
 
 /** Resolve the skill roots required by a client selection, or all owned roots. */
@@ -193,6 +198,38 @@ export const skillDestinations = (
       path: join(directory, PRODUCT_IDENTITY.skillName),
     }),
   );
+
+/**
+ * Shared lifecycle reason for a symbolic-link skill destination root: setup,
+ * doctor, uninstall, and update all retain and report it rather than follow it.
+ */
+export const symbolicLinkSkillReason = "Skill directory is a symbolic link.";
+
+const isSymbolicLinkRoot = async (path: string): Promise<boolean> => {
+  try {
+    return (await lstat(path)).isSymbolicLink();
+  } catch {
+    // Missing or unreadable roots stay on each caller's existing path.
+    return false;
+  }
+};
+
+/** Partition skill destinations into REA-managed and symbolic-link roots. */
+const partitionSkillDestinations = async (
+  destinations: readonly SkillDestination[],
+): Promise<{
+  readonly managed: readonly SkillDestination[];
+  readonly symbolicLinkRoots: readonly string[];
+}> => {
+  const managed: SkillDestination[] = [];
+  const symbolicLinkRoots: string[] = [];
+  for (const destination of destinations) {
+    if (await isSymbolicLinkRoot(destination.path))
+      symbolicLinkRoots.push(destination.path);
+    else managed.push(destination);
+  }
+  return { managed, symbolicLinkRoots };
+};
 
 /** Resolve existing REA-owned skill roots using setup's canonical destinations. */
 export const existingSkillDestinations = async (
@@ -248,20 +285,23 @@ const canonicalSkillFiles = async (
   environment: Readonly<NodeJS.ProcessEnv> = {},
   platform: NodeJS.Platform = process.platform,
   resources?: ArtifactResourceScope,
-): Promise<readonly CanonicalSkillFile[]> =>
-  Promise.all(
-    skillDestinations(home, clientIds, environment, platform).flatMap(
-      ({ path: root }) =>
-        MANAGED_SKILL_FILES.map(async (relativePath) => {
-          const destination = join(root, relativePath);
-          return {
-            destination,
-            content: await canonicalSkillContent(relativePath),
-            original: await readOptionalSkillState(destination, resources),
-          };
-        }),
+): Promise<readonly CanonicalSkillFile[]> => {
+  const { managed } = await partitionSkillDestinations(
+    skillDestinations(home, clientIds, environment, platform),
+  );
+  return Promise.all(
+    managed.flatMap(({ path: root }) =>
+      MANAGED_SKILL_FILES.map(async (relativePath) => {
+        const destination = join(root, relativePath);
+        return {
+          destination,
+          content: await canonicalSkillContent(relativePath),
+          original: await readOptionalSkillState(destination, resources),
+        };
+      }),
     ),
   );
+};
 
 const canonicalSkillNeedsInstallByReading = async (
   home: string,
@@ -270,12 +310,10 @@ const canonicalSkillNeedsInstallByReading = async (
   platform: NodeJS.Platform,
   resources?: ArtifactResourceScope,
 ): Promise<boolean> => {
-  for (const { path: root } of skillDestinations(
-    home,
-    clientIds,
-    environment,
-    platform,
-  )) {
+  const { managed } = await partitionSkillDestinations(
+    skillDestinations(home, clientIds, environment, platform),
+  );
+  for (const { path: root } of managed) {
     for (const relativePath of MANAGED_SKILL_FILES) {
       const destination = join(root, relativePath);
       const content = await canonicalSkillContent(relativePath);
@@ -458,14 +496,14 @@ export const readInstalledSkillIdentity = async (
   platform: NodeJS.Platform = process.platform,
   resources?: ArtifactResourceScope,
 ): Promise<InstalledSkillIdentity | undefined> => {
-  const destinations = skillDestinations(
-    home,
-    clientIds,
-    environment,
-    platform,
-  );
+  const { managed, symbolicLinkRoots: linkedRoots } =
+    await partitionSkillDestinations(
+      skillDestinations(home, clientIds, environment, platform),
+    );
+  // A linked root is only the selection's identity when nothing is managed.
+  const symbolicLinkRoots = managed.length === 0 ? linkedRoots : [];
   let content: string | undefined;
-  for (const destination of destinations) {
+  for (const destination of managed) {
     try {
       content = await readSkillFile(
         join(destination.path, "SKILL.md"),
@@ -482,7 +520,10 @@ export const readInstalledSkillIdentity = async (
       // still marks missing or unreadable copies as stale.
     }
   }
-  if (content === undefined) return undefined;
+  if (content === undefined)
+    return symbolicLinkRoots.length === 0
+      ? undefined
+      : { version: null, toolCount: null, canonical: false, symbolicLinkRoots };
   const toolCount = /^\s{2}tool_count:\s*(\d+)\s*$/mu.exec(content)?.[1];
   let canonical: boolean;
   try {
@@ -501,5 +542,6 @@ export const readInstalledSkillIdentity = async (
     canonical,
     version: /^\s{2}version:\s*"([^"]+)"\s*$/mu.exec(content)?.[1] ?? null,
     toolCount: toolCount === undefined ? null : Number.parseInt(toolCount, 10),
+    ...(symbolicLinkRoots.length === 0 ? {} : { symbolicLinkRoots }),
   };
 };

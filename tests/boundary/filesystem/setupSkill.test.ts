@@ -5,8 +5,10 @@ import {
   copyFile,
   mkdir,
   readFile,
+  readdir,
   rm,
   stat,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
@@ -17,6 +19,7 @@ import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import {
   canonicalSkillNeedsInstall,
   installCanonicalSkill,
+  readInstalledSkillIdentity,
   skillDestinations,
   type SkillInstallFileOperations,
 } from "../../../src/application/SetupSkill.js";
@@ -555,4 +558,98 @@ it("doctor verifies installed instructions and references even when metadata is 
       "aligned",
     );
   }
+});
+
+describe("symbolic-link skill destinations", () => {
+  const createLinkedSkillHome = async () => {
+    const home = await createTestTempDirectory("rea-skill-link-");
+    const managed = join(home, "managed", "rea");
+    await mkdir(managed, { recursive: true });
+    await writeFile(join(managed, "SKILL.md"), "user-managed copy\n");
+    const linkParent = join(home, ".claude", "skills");
+    await mkdir(linkParent, { recursive: true });
+    await symlink(managed, join(linkParent, "reverse-engineer-anything"));
+    return { home, managed };
+  };
+
+  it("keeps a symbolic-link skill destination byte-identical and plans no install", async () => {
+    const { home, managed } = await createLinkedSkillHome();
+    const before = await readFile(join(managed, "SKILL.md"));
+    expect(await canonicalSkillNeedsInstall(home, ["claude_code"])).toBe(false);
+    expect(await installCanonicalSkill(home, ["claude_code"])).toMatchObject({
+      ok: true,
+      value: "unchanged",
+    });
+    expect(await readFile(join(managed, "SKILL.md"))).toEqual(before);
+    expect(await readdir(managed)).toEqual(["SKILL.md"]);
+  });
+
+  it("reads no REA skill identity through a symbolic-link destination", async () => {
+    const { home } = await createLinkedSkillHome();
+    expect(
+      await readInstalledSkillIdentity(home, ["claude_code"]),
+    ).toMatchObject({
+      version: null,
+      toolCount: null,
+      canonical: false,
+      symbolicLinkRoots: [
+        join(home, ".claude", "skills", "reverse-engineer-anything"),
+      ],
+    });
+  });
+
+  it("reports doctor skill state unmanaged when the selected destination is a link", async () => {
+    const { home } = await createLinkedSkillHome();
+    const host = systemDoctorHost({
+      environment: { HOME: home, USERPROFILE: home },
+    });
+    const report = await runDoctor(undefined, host, {
+      clients: ["claude_code"],
+      skill: true,
+    });
+    expect(report.identity?.skill.state).toBe("unmanaged");
+    expect(report.identity?.skill.remediation).toMatch(/symbolic-link/u);
+    const check = report.scope_checks.find(
+      ({ name }) => name === "skill:identity",
+    );
+    expect(check).toMatchObject({
+      ok: false,
+      detail: expect.stringContaining("symbolic link"),
+    });
+    expect(check?.remediation).toMatch(/Replace the symbolic-link/u);
+  });
+
+  it("installs only into managed roots when a selection also contains a link", async () => {
+    const { home, managed } = await createLinkedSkillHome();
+    const before = await readFile(join(managed, "SKILL.md"));
+    expect(
+      await installCanonicalSkill(home, ["claude_code", "codex"]),
+    ).toMatchObject({ ok: true, value: "installed" });
+    expect(await readFile(join(managed, "SKILL.md"))).toEqual(before);
+    expect(await readdir(managed)).toEqual(["SKILL.md"]);
+    await expect(
+      access(join(home, ".agents/skills/reverse-engineer-anything/SKILL.md")),
+    ).resolves.toBeUndefined();
+  });
+});
+
+it("answers doctor from a managed root even when the selection also carries a link", async () => {
+  const home = await createTestTempDirectory("rea-skill-link-mixed-");
+  const managed = join(home, "managed", "rea");
+  await mkdir(managed, { recursive: true });
+  await writeFile(join(managed, "SKILL.md"), "user-managed copy\n");
+  const linkParent = join(home, ".claude", "skills");
+  await mkdir(linkParent, { recursive: true });
+  await symlink(managed, join(linkParent, "reverse-engineer-anything"));
+  await mkdir(join(home, ".agents/skills/reverse-engineer-anything"), {
+    recursive: true,
+  });
+  const host = systemDoctorHost({
+    environment: { HOME: home, USERPROFILE: home },
+  });
+  const report = await runDoctor(undefined, host, {
+    clients: ["claude_code", "codex"],
+    skill: true,
+  });
+  expect(report.identity?.skill.state).toBe("missing");
 });
