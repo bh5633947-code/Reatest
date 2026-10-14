@@ -186,16 +186,21 @@ describe("curl installer scenarios", { timeout: 20_000 }, () => {
   });
 });
 
-describe("installer reported version", { timeout: 20_000 }, () => {
-  it("rejects an empty version from a successful installed command", async () => {
-    const fixture = await createFixture();
-    await expect(
-      runInstaller(fixture, ["--version", "0.3.0"], { FAKE_REA_VERSION: "" }),
-    ).rejects.toMatchObject({
-      stderr:
-        "REA installation failed: the installed REA version could not be read. Reinstall the requested version, then retry.\n",
-    });
-  });
+describe("installer installed version identity", { timeout: 20_000 }, () => {
+  it.each(["", "   "])(
+    "reports an installed command without a version as unreadable: %j",
+    async (reported) => {
+      const fixture = await createFixture();
+      await expect(
+        runInstaller(fixture, ["--version", "0.3.0"], {
+          FAKE_REA_VERSION: reported,
+        }),
+      ).rejects.toMatchObject({
+        stderr:
+          "REA installation failed: the installed REA version could not be read. Reinstall the requested version, then retry.\n",
+      });
+    },
+  );
 });
 
 describe("installer TTY fallback", { timeout: 20_000 }, () => {
@@ -419,6 +424,7 @@ describe("installer semantic version parsing", { timeout: 20_000 }, () => {
   });
 
   it.each([
+    "",
     "1.2.3-01",
     "1.2.3-$(printf unexpected)",
     '1.2.3-"; printf unexpected; #',
@@ -460,6 +466,14 @@ describe("installer semantic version parsing", { timeout: 20_000 }, () => {
     await expect(readFile(fixture.npmLog, "utf8")).rejects.toMatchObject({
       code: "ENOENT",
     });
+  });
+
+  it("resolves the latest release when REA_VERSION is empty", async () => {
+    const fixture = await createFixture();
+    const result = await runInstaller(fixture, ["--dry-run"], {
+      REA_VERSION: "",
+    });
+    expect(result.stdout).toContain("Version: 0.3.0");
   });
 
   it("accepts a valid prerelease version without build metadata", async () => {
