@@ -1,10 +1,16 @@
-import type { MipsElfMetadata } from "../../../src/domain/binaryTargetTypes.js";
+import type {
+  MipsElfMetadata,
+  MipsGnuAttributes,
+} from "../../../src/domain/binaryTargetTypes.js";
 
 export type MipsFloatAbi = "hard" | "soft";
 export interface MipsReadelfFacts {
   mips: MipsElfMetadata;
   symbols: Record<string, string>;
 }
+export function parseMipsGnuAttributesReadelf(
+  text: string,
+): MipsGnuAttributes | null;
 export function parseMipsReadelf(
   text: string,
   byteOrder: string,

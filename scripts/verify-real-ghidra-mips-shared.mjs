@@ -11,6 +11,7 @@ import { parseBinaryTarget } from "../dist/application/BinaryTargetResolver.js";
 import { parseEvidence } from "../dist/domain/evidence.js";
 import { parseAnalysisSnapshot } from "../dist/domain/analysisSnapshot.js";
 import { buildMips16SharedFixture } from "../tests/conformance/ghidra/mips16-shared-fixture.mjs";
+import { parseMipsGnuAttributesReadelf } from "../tests/conformance/ghidra/mips-checks.mjs";
 import {
   requireMcpOperationResult,
   requireMcpToolError,
@@ -85,6 +86,19 @@ try {
         assert.equal(resolved.value.mips.abiFlags.fpAbi, 5);
         assert.equal(resolved.value.mips.abiFlags.ases, 0x400);
       }
+      // GNU as records `.module fp=xx` as Tag_GNU_MIPS_ABI_FP even when the
+      // recordless variant's linker script discards .MIPS.abiflags.
+      const attributes = await execute(
+        process.env.REA_MIPS_READELF ?? "readelf",
+        ["-A", fixture.path],
+        { env: { ...process.env, LC_ALL: "C" }, timeout: 10000 },
+      );
+      assert.deepEqual(
+        resolved.value.mips.gnuAttributes,
+        parseMipsGnuAttributesReadelf(attributes.stdout),
+        "REA GNU attribute interpretation disagrees with GNU readelf",
+      );
+      assert.equal(resolved.value.mips.gnuAttributes?.fpAbi, 5);
       const transport = new StdioClientTransport({
         command: process.execPath,
         args: ["scripts/rea.mjs", "mcp"],

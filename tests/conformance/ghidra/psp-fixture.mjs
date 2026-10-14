@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { copyFile, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { parseMipsGnuAttributesReadelf } from "./mips-checks.mjs";
 
 const execute = promisify(execFile);
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
@@ -105,6 +106,7 @@ export async function buildPspFixture(directory, globalValue = 7) {
       type: 2,
       flags: 0x10a23001,
       abiFlags,
+      gnuAttributes: parseMipsGnuAttributesReadelf(readelf.stdout),
     },
     abi_record_hex_dump: abiDump.stdout,
     global_value: globalValue,

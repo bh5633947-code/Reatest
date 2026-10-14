@@ -1,5 +1,8 @@
 import type { GhidraLanguageOverride } from "../config/ghidraLanguageOverride.js";
-import type { BinaryTarget } from "../domain/binaryTargetTypes.js";
+import type {
+  BinaryTarget,
+  MipsElfMetadata,
+} from "../domain/binaryTargetTypes.js";
 import type { JsonValue } from "../domain/jsonValue.js";
 
 const MIPS_FP_ABI_SOFT = 3;
@@ -65,6 +68,32 @@ const hasLegacyMipsHeaderShape = (target: BinaryTarget): boolean => {
   );
 };
 
+/**
+ * GNU attribute declarations the admitted lanes can model, shared by the
+ * generic MIPS and PSP admissions. Target resolution already reconciles the FP
+ * tag with an ABI flags record. Without a record the tag is the only FP
+ * declaration, so it must be one the declared-ABI lane admits under the
+ * default o32 compiler specification: double precision or FPXX (or 0, no
+ * requirement).
+ */
+export const ghidraMipsGnuAttributesUnsupportedReason = (
+  metadata: MipsElfMetadata,
+): string | null => {
+  const gnu = metadata.gnuAttributes;
+  if (gnu === undefined || gnu === null) return null;
+  if (gnu.msa !== null && gnu.msa !== 0)
+    return "Tag_GNU_MIPS_ABI_MSA declares the 128-bit MSA vector argument ABI, which this Ghidra MIPS lane does not model.";
+  if (
+    metadata.abiFlags === null &&
+    gnu.fpAbi !== null &&
+    gnu.fpAbi !== 0 &&
+    gnu.fpAbi !== 1 &&
+    gnu.fpAbi !== 5
+  )
+    return "Without an ABI flags record, a GNU floating-point attribute is admitted only when it declares double-precision or FPXX hard float, the models the default o32 compiler specification covers; other floating-point ABIs need separate verification.";
+  return null;
+};
+
 /** Keep family recognition separate from the deliberately bounded Ghidra lane. */
 export const ghidraMipsUnsupportedReason = (
   target: BinaryTarget,
@@ -77,6 +106,8 @@ export const ghidraMipsUnsupportedReason = (
   const shared = isGhidraMips16SharedTarget(target);
   if (metadata.elfClass !== 32)
     return "This Ghidra MIPS lane supports ELF32 only; MIPS64 and n64 remain unsupported.";
+  const gnuReason = ghidraMipsGnuAttributesUnsupportedReason(metadata);
+  if (gnuReason !== null) return gnuReason;
   if (
     metadata.type !== MIPS_ET_EXEC &&
     metadata.type !== MIPS_ET_REL &&
@@ -297,6 +328,17 @@ export const ghidraMipsProfileParameters = (
               flags1: abi.flags1,
               flags2: abi.flags2,
             },
+      ...(target.mips.gnuAttributes === undefined
+        ? {}
+        : {
+            gnu_attributes:
+              target.mips.gnuAttributes === null
+                ? null
+                : {
+                    fp_abi: target.mips.gnuAttributes.fpAbi,
+                    msa: target.mips.gnuAttributes.msa,
+                  },
+          }),
       ...(target.mips.sharedLoad === undefined
         ? {}
         : {

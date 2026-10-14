@@ -1,5 +1,8 @@
 import type { BinaryTarget } from "../domain/binaryTargetTypes.js";
-import { ghidraMipsUnsupportedReason } from "./GhidraMipsProfile.js";
+import {
+  ghidraMipsGnuAttributesUnsupportedReason,
+  ghidraMipsUnsupportedReason,
+} from "./GhidraMipsProfile.js";
 import { ghidraPowerPcUnsupportedReason } from "./GhidraPowerPcProfile.js";
 import { ghidraRiscvUnsupportedReason } from "./GhidraRiscvProfile.js";
 
@@ -27,6 +30,10 @@ export const ghidraProcessorUnsupportedReason = (
     return ghidraMipsUnsupportedReason(target);
   const metadata = target.mips;
   if (metadata === undefined) return "PSP analysis requires ELF metadata.";
+  // PSP's own rules below require an ABI flags record, so this applies the
+  // vector-ABI refusal the generic lane uses.
+  const gnuReason = ghidraMipsGnuAttributesUnsupportedReason(metadata);
+  if (gnuReason !== null) return gnuReason;
   if (metadata.elfClass !== 32 || metadata.byteOrder !== "little")
     return "The PSP Allegrex profile requires little-endian ELF32.";
   if (metadata.type !== 2)

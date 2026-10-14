@@ -136,6 +136,11 @@ try {
       assert.equal(resolved.value.mips.flags, 0x50000001);
       assert.equal(resolved.value.mips.abiFlags, null);
       assert.deepEqual(
+        resolved.value.mips.gnuAttributes,
+        legacy.gnuAttributes,
+        "REA GNU attribute interpretation disagrees with GNU readelf",
+      );
+      assert.deepEqual(
         resolved.value.mips.limitations ?? [],
         legacy.limitations,
         "REA legacy ABI-record absence interpretation disagrees with GNU readelf",
@@ -496,6 +501,13 @@ try {
             flags1: abi.flags1,
             flags2: abi.flags2,
           },
+          gnu_attributes:
+            independent.mips.gnuAttributes === null
+              ? null
+              : {
+                  fp_abi: independent.mips.gnuAttributes.fpAbi,
+                  msa: independent.mips.gnuAttributes.msa,
+                },
         },
         "Snapshot profile did not retain the independently inspected ELF/ABI declaration",
       );
@@ -655,79 +667,55 @@ try {
           carvedResolved.value.mips.limitations.join(" "),
           /section header table/u,
         );
-        const carvedTarget = await call("open_binary", {
-          path: carvedPath,
-          provider_id: "ghidra",
-        });
-        assert.equal(carvedTarget.sha256, carvedSha256);
-        const carvedImage = await call("inspect_native_load_image");
-        assertMipsLoadedImage(
-          carvedImage.observations,
-          byteOrder,
-          carvedSha256,
+        // A carved section table could hide an unsupported or conflicting ABI
+        // declaration, so the provider refuses the incomplete inspection even
+        // though the program-header record is valid (docs/ghidra-mips.md).
+        const incomplete = /MIPS ABI declaration inspection is incomplete/u;
+        const rejected = await client.callTool(
+          {
+            name: "open_binary",
+            arguments: { path: carvedPath, provider_id: "ghidra" },
+          },
+          { timeout: 60000 },
         );
-        const carvedProcedures = await call("list_procedures");
+        const carvedError = requireMcpToolError(rejected);
+        assert.match(JSON.stringify(carvedError), incomplete);
+        let carvedCliError;
+        try {
+          await execute(
+            process.execPath,
+            [
+              entrypoint,
+              "function",
+              carvedPath,
+              independent.symbols.rea_mips_entry,
+              "--provider",
+              "ghidra",
+              "--json",
+            ],
+            { env, timeout: 60000, maxBuffer: 1024 * 1024 },
+          );
+        } catch (cause) {
+          carvedCliError = cause;
+        }
         assert.ok(
-          carvedProcedures.some(
-            (p) =>
-              BigInt(p.address) === BigInt(independent.symbols.rea_mips_entry),
-          ),
+          carvedCliError &&
+            Number.isInteger(carvedCliError.code) &&
+            carvedCliError.code !== 0,
+          "Expected a typed public refusal of the carved image, not a timeout or success",
         );
-        const carvedDossier = functionDossierSchema.parse(
-          await call("analyze_function", {
-            procedure: independent.symbols.rea_mips_entry,
-          }),
-        );
-        assert.ok(carvedDossier.pseudocode.trim().length > 0);
-        const carvedSnapshotPath = join(
-          workspace,
-          `${byteOrder}-${floatAbi}-carved.snapshot.json`,
-        );
-        await call("close_binary", { snapshot_path: carvedSnapshotPath });
-        const carvedSnapshot = parseAnalysisSnapshot(
-          JSON.parse(await readFile(carvedSnapshotPath, "utf8")),
-        );
-        assert.equal(carvedSnapshot.target.sha256, carvedSha256);
-        assert.ok(
-          carvedSnapshot.evidence_bundle.records.some((record) =>
-            parseEvidence(record).limitations.some((item) =>
-              item.includes("section header table"),
-            ),
-          ),
-        );
-        const carvedCli = await execute(
-          process.execPath,
-          [
-            entrypoint,
-            "function",
-            carvedPath,
-            independent.symbols.rea_mips_entry,
-            "--provider",
-            "ghidra",
-            "--json",
-          ],
-          { env, timeout: 240000, maxBuffer: 16 * 1024 * 1024 },
-        );
-        const carvedEvidence = parseEvidence(JSON.parse(carvedCli.stdout));
-        assert.equal(carvedEvidence.subject?.digest.sha256, carvedSha256);
-        assert.ok(
-          carvedEvidence.limitations.some((item) =>
-            item.includes("section header table"),
-          ),
-        );
-        assert.equal(
-          functionDossierSchema.parse(carvedEvidence.normalized_result)
-            .procedure.address,
-          carvedDossier.procedure.address,
+        assert.match(
+          `${carvedCliError.stdout}\n${carvedCliError.stderr}`,
+          incomplete,
         );
         assert.deepEqual(await readFile(carvedPath), carvedBytes);
         carved = {
           sha256: carvedSha256,
           source_bytes: carvedBytes.length,
           section_header_offset: sectionOffset,
-          effective_language: carvedImage.observations.language_id,
           limitations: carvedResolved.value.mips.limitations,
-          procedures: carvedProcedures.length,
+          status: "expected-incomplete-inspection-refusal",
+          cli_exit: carvedCliError.code,
         };
       }
       reports.push({

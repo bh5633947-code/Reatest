@@ -312,6 +312,21 @@ describe.skipIf(process.platform === "win32")(
         expect(result.error._tag).toBe("AnalysisUnsupportedTargetError");
       },
     );
+
+    it("applies the GNU MSA vector-ABI refusal to PSP before extension reads", async () => {
+      const { provider } = await installation();
+      const withGnu = (msa: number): BinaryTarget => ({
+        ...target,
+        mips: { ...target.mips, gnuAttributes: { fpAbi: 2, msa } },
+      });
+      expect(ghidraProcessorUnsupportedReason(withGnu(0))).toBeNull();
+      expect(ghidraProcessorUnsupportedReason(withGnu(1))).toContain(
+        "128-bit MSA",
+      );
+      expect(provider.inspectTargetSupport(withGnu(1)).status).toBe(
+        "unsupported",
+      );
+    });
   },
 );
 

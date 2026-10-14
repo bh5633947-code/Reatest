@@ -23,6 +23,47 @@ const SOFT_FLOAT_SYMBOLS = [
   "rea_mips_soft_caller",
 ];
 
+// GNU readelf prints ABI flags fp_abi and Tag_GNU_MIPS_ABI_FP with one printer.
+const READELF_FP_ABI = new Map([
+  ["Hard or soft float", 0],
+  ["Hard float (double precision)", 1],
+  ["Hard float (single precision)", 2],
+  ["Soft float", 3],
+  ["Hard float (32-bit CPU, Any FPU)", 5],
+  ["Hard float (32-bit CPU, 64-bit FPU)", 6],
+  ["Hard float compat (32-bit CPU, 64-bit FPU)", 7],
+]);
+const READELF_MSA_ABI = new Map([
+  ["Any MSA or not", 0],
+  ["128-bit MSA", 1],
+]);
+
+/**
+ * Independent `readelf -A` reading of GNU object attributes: null when no
+ * attribute section is printed, otherwise the file-scope MIPS FP and MSA tags.
+ */
+export function parseMipsGnuAttributesReadelf(text) {
+  const vendors = [...text.matchAll(/^Attribute Section: (\S+)\s*$/gmu)].map(
+    (match) => match[1],
+  );
+  if (vendors.length === 0) return null;
+  assert.deepEqual(vendors, ["gnu"], "Unexpected readelf attribute vendors");
+  const tag = (name, values) => {
+    const matches = [
+      ...text.matchAll(new RegExp(`^\\s+${name}:\\s*(.+?)\\s*$`, "gmu")),
+    ];
+    assert.ok(matches.length <= 1, `Ambiguous readelf ${name}`);
+    if (matches.length === 0) return null;
+    const value = values.get(matches[0][1]);
+    assert.ok(value !== undefined, `Unrecognized ${name}: ${matches[0][1]}`);
+    return value;
+  };
+  return {
+    fpAbi: tag("Tag_GNU_MIPS_ABI_FP", READELF_FP_ABI),
+    msa: tag("Tag_GNU_MIPS_ABI_MSA", READELF_MSA_ABI),
+  };
+}
+
 /**
  * Parse only the documented GNU readelf fields needed by our tiny fixtures.
  * `rel` objects carry their own symbol checks in mips-relocatable-checks.mjs.
@@ -62,11 +103,7 @@ export function parseMipsReadelf(
     return bits === 32 ? 1 : 0;
   };
   const fp = field(/^FP ABI:\s*(.+)$/gmu, "FP ABI");
-  const fpAbi = new Map([
-    ["Hard float (double precision)", 1],
-    ["Hard float (32-bit CPU, Any FPU)", 5],
-    ["Soft float", 3],
-  ]).get(fp);
+  const fpAbi = READELF_FP_ABI.get(fp);
   assert.ok(fpAbi !== undefined, `Unrecognized fixture FP ABI: ${fp}`);
   assert.equal(
     fpAbi === 3,
@@ -123,6 +160,7 @@ export function parseMipsReadelf(
       type: objectType === "rel" ? 1 : 2,
       flags,
       abiFlags,
+      gnuAttributes: parseMipsGnuAttributesReadelf(text),
     },
     symbols,
   };
@@ -232,6 +270,7 @@ export async function inspectLegacyMipsReadelf(path, byteOrder) {
   }
   return {
     flags: Number(flags),
+    gnuAttributes: parseMipsGnuAttributesReadelf(abi.stdout),
     limitations: [],
     symbols: parsed,
     command,
