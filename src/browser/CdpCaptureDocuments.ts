@@ -7,6 +7,8 @@ import {
   recordsValue,
   requiredRecord,
   cdpStringValue,
+  cdpIndexedString as indexedString,
+  cdpIndexedStringValue,
   type UnknownRecord,
 } from "./CdpCaptureValues.js";
 import { exclusionReasonForUrl } from "./CdpCaptureEventHelpers.js";
@@ -195,7 +197,7 @@ export function* captureDom(
     const baseUrlValue =
       document.baseURL === undefined
         ? documentUrl
-        : indexedString(strings, document.baseURL);
+        : cdpIndexedStringValue(strings, document.baseURL);
     if (baseUrlValue === undefined) {
       completeness?.exclude("dom", "invalid_protocol_value");
       continue;
@@ -249,7 +251,7 @@ export function* captureDom(
       const parent = rawParents[index];
       const attributeIndexes = numberArray(rawAttributes[index]);
       const nodeName = indexedString(strings, nodeNameIndex);
-      const nodeValue = indexedString(strings, nodeValueIndex);
+      const nodeValue = cdpIndexedStringValue(strings, nodeValueIndex);
       if (
         nodeType === undefined ||
         nodeName === undefined ||
@@ -261,8 +263,11 @@ export function* captureDom(
         attributeIndexes === undefined ||
         attributeIndexes.length % 2 !== 0 ||
         attributeIndexes.some(
-          (value) =>
-            value === undefined || indexedString(strings, value) === undefined,
+          (value, offset) =>
+            value === undefined ||
+            (offset % 2 === 0
+              ? indexedString(strings, value)
+              : cdpIndexedStringValue(strings, value)) === undefined,
         )
       ) {
         completeness?.exclude("dom", "invalid_protocol_value");
@@ -514,16 +519,6 @@ const accessibilityStates = (
 const axText = (value: unknown): string | null =>
   cdpStringValue(recordValue(value)?.value) ?? null;
 
-const indexedString = (
-  strings: readonly (string | undefined)[],
-  index: unknown,
-): string | undefined => {
-  const integer = numberValue(index);
-  if (integer === undefined || !Number.isSafeInteger(integer) || integer < 0)
-    return undefined;
-  return strings[integer];
-};
-
 const uniqueAttributeNames = (
   attributeIndexes: readonly number[],
   strings: readonly (string | undefined)[],
@@ -598,7 +593,7 @@ const domMetadata = (
   for (let index = 0; index + 1 < attributes.length; index += 2) {
     // Chrome already folds HTML names; SVG/XML names remain case-sensitive.
     const name = indexedString(strings, attributes[index]);
-    const value = indexedString(strings, attributes[index + 1]);
+    const value = cdpIndexedStringValue(strings, attributes[index + 1]);
     if (name === undefined || value === undefined) continue;
     // HTML keeps the first declaration. A later repeat must not move dom_urls.
     if (!pairs.has(name)) pairs.set(name, value);

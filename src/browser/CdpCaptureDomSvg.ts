@@ -1,4 +1,9 @@
-import { numberValue, recordValue } from "./CdpCaptureValues.js";
+import {
+  numberValue,
+  recordValue,
+  cdpIndexedString as stringAt,
+  cdpIndexedStringValue,
+} from "./CdpCaptureValues.js";
 
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 const XLINK_NAMESPACE = "http://www.w3.org/1999/xlink";
@@ -51,16 +56,6 @@ interface DomSvgLink {
   readonly xmlDocument: boolean | undefined;
   readonly xlinkHref: string | undefined;
 }
-
-const stringAt = (
-  strings: readonly (string | undefined)[],
-  index: unknown,
-): string | undefined => {
-  const integer = numberValue(index);
-  if (integer === undefined || !Number.isSafeInteger(integer) || integer < 0)
-    return undefined;
-  return strings[integer];
-};
 
 const numberArray = (value: unknown): readonly (number | undefined)[] =>
   Array.isArray(value)
@@ -224,7 +219,7 @@ const applyDeclarations = (
     const valueIndex = attributes[index + 1];
     if (nameIndex === undefined || valueIndex === undefined) continue;
     const name = stringAt(strings, nameIndex);
-    const value = stringAt(strings, valueIndex);
+    const value = cdpIndexedStringValue(strings, valueIndex);
     if (name === undefined || value === undefined) continue;
     const prefix = xmlnsPrefix(name);
     if (prefix === undefined || seen.has(prefix)) continue;
@@ -286,7 +281,7 @@ const xlinkHrefValue = (
     const prefix = name.slice(0, colon);
     const local = name.slice(colon + 1);
     if (local !== "href" || bindings.get(prefix) !== XLINK_NAMESPACE) continue;
-    return stringAt(strings, valueIndex);
+    return cdpIndexedStringValue(strings, valueIndex);
   }
   return undefined;
 };
@@ -307,9 +302,11 @@ const validSvgSourceNode = (
   return (
     attributes.length === rawAttributes.length &&
     attributes.every(
-      (attribute) =>
+      (attribute, offset) =>
         attribute !== undefined &&
-        stringAt(nodes.strings, attribute) !== undefined,
+        (offset % 2 === 0
+          ? stringAt(nodes.strings, attribute)
+          : cdpIndexedStringValue(nodes.strings, attribute)) !== undefined,
     )
   );
 };
