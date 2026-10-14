@@ -6,6 +6,8 @@ import { afterEach, expect, it } from "vitest";
 
 import { electronActiveTimelineEventSchema } from "../../../src/domain/javascript/electronActiveObservation.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
+import type { ElectronHookSnapshot } from "../../../src/browser/PlaywrightElectronActiveActions.js";
+import { projectElectronActiveCapture } from "../../../src/browser/PlaywrightElectronActiveProjection.js";
 
 const temporary: string[] = [];
 
@@ -217,6 +219,89 @@ it("retains active hook evidence within its event-retention budget", async () =>
     ]),
   );
 });
+
+it.each([
+  ["dropped", 12_000, true],
+  ["retained", 0, true],
+  ["absent", 0, false],
+] as const)(
+  "preserves preload configuration coverage when %s",
+  async (scenario, ticks, configured) => {
+    const root = await createTestTempDirectory(
+      "rea-electron-preload-coverage-",
+    );
+    await writeFile(
+      join(root, "electron.js"),
+      'process.type = "browser";\n' + electronModuleSource,
+    );
+    const script = join(root, "exercise.cjs");
+    await writeFile(
+      script,
+      `
+const electron = require("electron");
+const first = new electron.BrowserWindow({ webPreferences: {} });
+for (let index = 0; index < ${ticks}; index++) first.emit("fixture-tick");
+new electron.BrowserWindow({ webPreferences: ${configured ? '{ preload: "/fixture/preload.js" }' : "{}"} });
+process.stdout.write(JSON.stringify(globalThis.__reaElectronActiveSnapshot()));
+`,
+    );
+    const execution = await runNode(
+      join(process.cwd(), "scripts/electron-active-hook.cjs"),
+      script,
+      root,
+      root,
+    );
+    expect(execution.code, execution.stderr).toBe(0);
+    const snapshot = JSON.parse(execution.stdout) as ElectronHookSnapshot;
+    expect(snapshot.hook_error).toBe(false);
+    const result = projectElectronActiveCapture(
+      { executable: process.execPath, application: script },
+      [],
+      {
+        windows: [],
+        metrics: [],
+        electronVersion: "fixture-electron",
+        hookSnapshot: snapshot,
+      },
+    );
+    expect(result.coverage.observed_roles).toContain("browser");
+    expect(result.coverage.observed_event_families).not.toContain("preload");
+    expect(result.coverage.unavailable_event_families).toContain("preload");
+    expect(
+      result.coverage.observed_event_families.includes("preload-configuration"),
+    ).toBe(configured);
+    expect(
+      result.coverage.unavailable_event_families.includes(
+        "preload-configuration",
+      ),
+    ).toBe(!configured);
+    if (scenario === "dropped") {
+      expect(snapshot.events.some(({ kind }) => kind === "preload")).toBe(
+        false,
+      );
+      expect(result.retention.dropped_event_families).toContainEqual({
+        family: "preload-configuration",
+        count: 1,
+      });
+      expect(
+        result.retention.dropped_event_roles.find(
+          ({ role }) => role === "browser",
+        )?.count,
+      ).toBeGreaterThan(0);
+      expect(result.timeline.observed).toBe(
+        result.retention.retained + result.retention.dropped,
+      );
+      expect(result.limitations).not.toContain(
+        "Preload configuration was not exposed by the observed Electron window metadata. Preload paths and execution remain unavailable.",
+      );
+    } else {
+      expect(snapshot.dropped).toBe(0);
+      expect(snapshot.events.some(({ kind }) => kind === "preload")).toBe(
+        configured,
+      );
+    }
+  },
+);
 
 it("preserves fatal process termination after recording uncaught exceptions", async () => {
   const root = await createTestTempDirectory("rea-electron-hook-fatal-");
