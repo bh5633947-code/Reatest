@@ -652,7 +652,8 @@ const readBindStream = (
     } else {
       binds.push({ start: state.address, count, stride, binding });
     }
-    state.address += count * stride;
+    // Skips wrap at 64 bits like ADD_ADDR_ULEB; ld rebinds a slot with -8.
+    state.address = (state.address + count * stride) & 0xffffffffffffffffn;
   };
   while (cursor.at < end) {
     const byte = bytes[cursor.at++] ?? 0;
