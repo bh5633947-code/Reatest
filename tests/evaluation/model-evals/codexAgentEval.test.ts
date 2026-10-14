@@ -218,28 +218,73 @@ describe("Codex completed tool call parsing", () => {
     },
   );
 
-  it("preserves legacy completed calls with no server field", () => {
-    const metrics = evaluateCodexEvents(
-      [
-        {
-          type: "item.completed",
-          item: {
-            type: "mcp_tool_call",
-            status: "completed",
-            tool: "inspect_managed_artifact",
-            arguments: {},
+  it.each([{}, { server: "other" }, { server_name: "other" }])(
+    "does not attribute completed calls to REA without its server identity: %j",
+    (identity) => {
+      const tool = "inspect_managed_artifact";
+      const metrics = evaluateCodexEvents(
+        [
+          {
+            type: "item.completed",
+            item: {
+              type: "mcp_tool_call",
+              status: "completed",
+              tool,
+              arguments: {},
+              ...identity,
+            },
           },
-        },
-      ],
-      "inspect_managed_artifact",
-    );
+        ],
+        tool,
+        { requiredToolSubsequence: [tool] },
+      );
 
-    expect(metrics).toMatchObject({
-      naturalUse: true,
-      correctFirstTool: true,
-      reaCalls: [{ server: null }],
-    });
-  });
+      expect(metrics).toMatchObject({
+        naturalUse: false,
+        firstTool: null,
+        correctFirstTool: false,
+        requiredToolSubsequenceMet: false,
+        reaCalls: [],
+        evidenceIds: [],
+      });
+    },
+  );
+
+  it.each([
+    { server: "rea" },
+    { server: "REA" },
+    { server_name: "rea" },
+    { server_name: "REA" },
+  ])(
+    "attributes completed calls with explicit REA identity: %j",
+    (identity) => {
+      const tool = "inspect_managed_artifact";
+      const metrics = evaluateCodexEvents(
+        [
+          {
+            type: "item.completed",
+            item: {
+              type: "mcp_tool_call",
+              status: "completed",
+              tool,
+              arguments: {},
+              ...identity,
+            },
+          },
+        ],
+        tool,
+        { requiredToolSubsequence: [tool] },
+      );
+
+      expect(metrics).toMatchObject({
+        naturalUse: true,
+        firstTool: tool,
+        correctFirstTool: true,
+        requiredToolSubsequenceMet: true,
+        reaCalls: [{ tool }],
+      });
+    },
+  );
 });
 
 describe("Codex Evidence delivery", () => {
