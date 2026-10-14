@@ -183,6 +183,48 @@ describe("managed member comparison of nested types", () => {
     });
   });
 
+  it("reports bodies swapped between same-named nested types as changed", () => {
+    // Give each Inner.M its own CIL, then swap the bodies between A and B.
+    const bodies =
+      (byToken: Readonly<Record<string, string>>) =>
+      (inspection: Inspection) => ({
+        ...inspection,
+        methods: inspection.methods.map((method) => {
+          const digest = byToken[method.token];
+          return digest === undefined || method.body.status !== "present"
+            ? method
+            : {
+                ...method,
+                body: {
+                  ...method.body,
+                  il_sha256: digest,
+                  normalized_il_sha256: digest,
+                },
+              };
+        }),
+      });
+    // Fixture.A+Inner.M is MethodDef 1 on the left and MethodDef 2 on the right.
+    const comparison = compare(original, swapped, {
+      left: bodies({
+        "0x06000001": "a".repeat(64),
+        "0x06000002": "b".repeat(64),
+      }),
+      right: bodies({
+        "0x06000002": "b".repeat(64),
+        "0x06000001": "a".repeat(64),
+      }),
+    });
+
+    expect(pairs(comparison).methods.slice(0, 2)).toEqual([
+      ["0x06000001", "0x06000002", "changed", "exact-signature", "exact"],
+      ["0x06000002", "0x06000001", "changed", "exact-signature", "exact"],
+    ]);
+    expect(
+      comparison.methods.slice(0, 2).map(({ dimensions }) => dimensions),
+    ).toEqual([["cil"], ["cil"]]);
+    expect(comparison.summary).toMatchObject({ changed: 2 });
+  });
+
   it("keeps bare nested names when either side cannot name its enclosing types", () => {
     const bare = pairs(
       compare(original, swapped, {
