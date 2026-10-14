@@ -223,6 +223,7 @@ const staticCallPath = (
       ? stringValue(node.arguments[0])
       : undefined;
   if (name === "fileURLToPath" || name.endsWith(".fileURLToPath")) {
+    if (node.arguments.length !== 1) return undefined;
     return staticFileUrlPath(argumentNode(node.arguments[0]));
   }
   if (name.endsWith(".resolve"))
@@ -249,9 +250,19 @@ const staticFileUrlPath = (
   argument: t.Node | undefined,
 ): string | undefined => {
   if (argument === undefined) return undefined;
-  return isSourceFileUrl(argument)
-    ? sourceRelativeFileUrlPath(argument)
-    : staticPath(argument);
+  if (isSourceFileUrl(argument)) return sourceRelativeFileUrlPath(argument);
+  const value = staticPath(argument);
+  if (value === undefined) return undefined;
+  try {
+    const url = new URL(value);
+    // Static path recovery uses POSIX semantics, not the analyzer host's OS.
+    // Drive and remote-host URLs require an explicit target interpretation.
+    const path = fileURLToPath(url, { windows: false });
+    return /^\/[a-z]:/iu.test(path) ? undefined : path;
+  } catch (cause: unknown) {
+    void cause;
+    return undefined;
+  }
 };
 
 /** Project a known source-relative URL through the actual file URL decoder. */
@@ -339,10 +350,7 @@ const isFilesystemPathExpression = (node: t.Node): boolean => {
     if (name === "URL" || name.endsWith(".URL"))
       return isFileIdentity(argumentNode(node.arguments[1]));
     if (name === "fileURLToPath" || name.endsWith(".fileURLToPath"))
-      return node.arguments.some((argument) => {
-        const value = argumentNode(argument);
-        return value !== undefined && isFilesystemPathExpression(value);
-      });
+      return true;
     return node.arguments.some((argument) => {
       const value = argumentNode(argument);
       return value !== undefined && isFilesystemPathExpression(value);
