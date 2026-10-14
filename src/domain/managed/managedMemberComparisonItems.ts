@@ -5,7 +5,6 @@ import type { ManagedMemberComparisonResult } from "./managedMemberComparison.js
 import {
   type ManagedFieldMatches,
   type ManagedMethodMatches,
-  identityOf,
   sha256,
 } from "./managedMemberComparisonMatch.js";
 
@@ -136,11 +135,12 @@ const unmatchedComparison = (): UnmatchedComparison => ({
 
 const methodOnlyItem = (
   member: OneSided<Method>,
+  identity: string,
   context: ComparisonItemContext,
   undecoded: UndecodedOneSidedNames,
 ): MethodItem => {
   if (member.left !== undefined) {
-    const limitations = absenceLimitations(member.left, {
+    const limitations = absenceLimitations(member.left, identity, {
       oppositeComplete: inventoryCovers(
         context.rightComplete,
         context.rightSelection,
@@ -162,7 +162,7 @@ const methodOnlyItem = (
     };
   }
 
-  const limitations = absenceLimitations(member.right, {
+  const limitations = absenceLimitations(member.right, identity, {
     oppositeComplete: inventoryCovers(
       context.leftComplete,
       context.leftSelection,
@@ -194,6 +194,7 @@ const methodOnlyItem = (
  */
 const absenceLimitations = (
   member: Method | Field,
+  identity: string,
   opposite: {
     readonly oppositeComplete: boolean;
     readonly oppositeUndecodedNames: ReadonlySet<string>;
@@ -213,7 +214,7 @@ const absenceLimitations = (
       ]),
   ...(member.signature.parse_status === "decoded" &&
   opposite.oppositeUndecodedNames.size > 0 &&
-  opposite.oppositeUndecodedNames.has(identityOf(member))
+  opposite.oppositeUndecodedNames.has(identity)
     ? [
         `counterpart-signature-not-decoded: The ${opposite.opposite} ${opposite.inventory} inventory has an unpaired member with the same declared type and name whose signature was not decoded, so it may be this member with a changed signature.`,
       ]
@@ -257,11 +258,12 @@ const undecodedOneSidedNames = (members: {
 
 const fieldOnlyItem = (
   member: OneSided<Field>,
+  identity: string,
   context: ComparisonItemContext,
   undecoded: UndecodedOneSidedNames,
 ): FieldItem => {
   if (member.left !== undefined) {
-    const limitations = absenceLimitations(member.left, {
+    const limitations = absenceLimitations(member.left, identity, {
       oppositeComplete: inventoryCovers(
         context.rightComplete,
         context.rightSelection,
@@ -282,7 +284,7 @@ const fieldOnlyItem = (
     };
   }
 
-  const limitations = absenceLimitations(member.right, {
+  const limitations = absenceLimitations(member.right, identity, {
     oppositeComplete: inventoryCovers(
       context.leftComplete,
       context.leftSelection,
@@ -386,9 +388,13 @@ export const buildMethodItems = (
   }
   const undecoded = undecodedOneSidedNames(matches);
   for (const item of matches.leftOnly)
-    items.push(methodOnlyItem({ left: item.item }, context, undecoded));
+    items.push(
+      methodOnlyItem({ left: item.item }, item.identity, context, undecoded),
+    );
   for (const item of matches.rightOnly)
-    items.push(methodOnlyItem({ right: item.item }, context, undecoded));
+    items.push(
+      methodOnlyItem({ right: item.item }, item.identity, context, undecoded),
+    );
   return items;
 };
 
@@ -442,8 +448,12 @@ export const buildFieldItems = (
     });
   const undecoded = undecodedOneSidedNames(matches);
   for (const item of matches.leftOnly)
-    items.push(fieldOnlyItem({ left: item.item }, context, undecoded));
+    items.push(
+      fieldOnlyItem({ left: item.item }, item.identity, context, undecoded),
+    );
   for (const item of matches.rightOnly)
-    items.push(fieldOnlyItem({ right: item.item }, context, undecoded));
+    items.push(
+      fieldOnlyItem({ right: item.item }, item.identity, context, undecoded),
+    );
   return items;
 };

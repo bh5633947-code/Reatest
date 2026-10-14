@@ -19,6 +19,7 @@ import { managedMemberInspectionSchema } from "../domain/managed/managedArtifact
 import { comparisonLimitations } from "../domain/managed/managedMemberComparisonCoverage.js";
 
 import {
+  buildManagedNestedTypeFixture,
   buildManagedPeFixture,
   buildNativePeFixture,
   fixtureUserStringHeap,
@@ -519,6 +520,67 @@ describe("managed MethodSpec call targets", () => {
       ["invalid-blob", "metadata.MethodSpec:0x2b000001"],
       ["invalid-row", "metadata.MethodSpec:0x2b000002"],
       ["invalid-blob", "metadata.MethodSpec:0x2b000002"],
+    ]);
+  });
+});
+
+describe("managed nested types", () => {
+  const inspectNested = (
+    options: Parameters<typeof buildManagedNestedTypeFixture>[0] = {},
+  ) => {
+    const bytes = buildManagedNestedTypeFixture(options);
+    return inspectManagedMembersBytes(
+      bytes,
+      managedPeFixtureTarget(bytes, "/fixture/nested.dll"),
+    );
+  };
+
+  it("reports the enclosing type of each nested type", () => {
+    const result = inspectNested();
+
+    expect(
+      result.types.map(({ full_name, enclosing_type_token }) => [
+        full_name,
+        enclosing_type_token,
+      ]),
+    ).toEqual([
+      ["<Module>", null],
+      ["Fixture.A", null],
+      ["Fixture.B", null],
+      ["Inner", "0x02000002"],
+      ["Inner", "0x02000003"],
+      ["Leaf", "0x02000004"],
+    ]);
+    expect(result.nesting_read).toBe(true);
+    expect(result.coverage.issues).toEqual([]);
+  });
+
+  it("reports NestedClass rows that do not pair distinct existing types once", () => {
+    const result = inspectNested({
+      nestedClassRows: [
+        [4, 4],
+        [5, 3],
+        [5, 2],
+        [6, 9],
+        [0, 2],
+        [4, 0],
+        [9, 2],
+      ],
+    });
+
+    expect(
+      result.types.map(({ enclosing_type_token }) => enclosing_type_token),
+    ).toEqual([null, null, null, null, "0x02000003", null]);
+    expect(result.nesting_read).toBe(false);
+    expect(
+      result.coverage.issues.map(({ code, scope }) => [code, scope]),
+    ).toEqual([
+      ["invalid-row", "metadata.NestedClass:0x29000001"],
+      ["invalid-row", "metadata.NestedClass:0x29000003"],
+      ["invalid-row", "metadata.NestedClass:0x29000004"],
+      ["invalid-row", "metadata.NestedClass:0x29000005"],
+      ["invalid-row", "metadata.NestedClass:0x29000006"],
+      ["invalid-row", "metadata.NestedClass:0x29000007"],
     ]);
   });
 });
