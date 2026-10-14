@@ -192,3 +192,40 @@ Large Evidence envelopes may require a caller-configured MCP transport receive
 buffer because envelope copies add overhead. Requests honor cancellation during
 snapshot reading, directory traversal and payload hashing. The operation reads
 regular files only and rejects symbolic links.
+
+## Portable PE debug directory
+
+`inspect_pe_debug_directory` / `inspect-pe-debug-directory` inspects an explicit
+PE32 or PE32+ file's `IMAGE_DEBUG_DIRECTORY` without an active target, native
+engine, PDB fetch, or Windows SDK:
+
+```sh
+rea inspect-pe-debug-directory ./selected.exe --json
+```
+
+```json
+{
+  "name": "inspect_pe_debug_directory",
+  "arguments": { "path": "/artifacts/selected.exe" }
+}
+```
+
+The complete Evidence identifies the stable artifact snapshot by path, byte
+count and SHA-256. When the debug data directory is present, each 28-byte
+entry retains its type DWORD, named type when documented, original file range,
+`AddressOfRawData`, `PointerToRawData`, payload SHA-256 and a decoded payload
+kind. CodeView RSDS records report the PDB path, file name, GUID and age.
+CodeView NB10 records report the PDB path, file name and age. `IMAGE_DEBUG_TYPE_REPRO`
+payloads report the hash bytes as hex. `IMAGE_DEBUG_TYPE_EX_DLLCHARACTERISTICS`
+payloads report the characteristics DWORD. Other payloads stay `opaque`.
+Unparsed CodeView magics stay `codeview_unparsed` with the four-byte magic.
+
+A missing debug directory is a complete empty inventory. Absence does not prove
+the image was built without debug information. PDB paths and GUIDs are file
+content; they do not authenticate a companion PDB or apply symbols. Malformed
+headers, truncated tables, unbacked ranges and exhausted budgets fail
+explicitly rather than returning a partial inventory.
+
+`max_file_bytes` defaults to 64 MiB (maximum 512 MiB); `max_entries` defaults to
+256 (maximum 4096). CLI options are `--max-file-bytes` and `--max-entries`.
+The operation reads regular files only and rejects symbolic links.

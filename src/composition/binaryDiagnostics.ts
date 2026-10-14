@@ -4,10 +4,16 @@ import { BinaryLayoutService } from "../application/binaryDiagnostics/BinaryLayo
 import { PwntoolsLayoutProvider } from "../native/pwntools/PwntoolsLayoutProvider.js";
 import { PeResourcesService } from "../application/binaryDiagnostics/PeResourcesService.js";
 import { PeResourcesProvider } from "../native/pe/PeResourcesProvider.js";
+import { PeDebugDirectoryService } from "../application/binaryDiagnostics/PeDebugDirectoryService.js";
+import { PeDebugDirectoryProvider } from "../native/pe/PeDebugDirectoryProvider.js";
 
 /** Portable PE inspection with no engine, installation or target acquisition. */
 export const createPeResourcesService = (): PeResourcesService =>
   new PeResourcesService(new PeResourcesProvider());
+
+/** Portable PE debug-directory inspection with no engine or PDB fetch. */
+export const createPeDebugDirectoryService = (): PeDebugDirectoryService =>
+  new PeDebugDirectoryService(new PeDebugDirectoryProvider());
 
 /** Compose the offline adapter without import-time I/O or dependency acquisition. */
 export const createBinaryLayoutService = (

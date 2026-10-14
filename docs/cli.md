@@ -95,6 +95,17 @@ dependency edges, and the section's file range. A missing `.dep-v0` section is
 null metadata, not proof that the binary has no dependencies. See
 [Rust binaries](rust-binaries.md).
 
+Inspect a PE debug directory without fetching a PDB or opening a disassembler:
+
+```bash
+rea inspect-pe-debug-directory /absolute/path/to/program.exe --json
+```
+
+The workflow reports CodeView RSDS/NB10 PDB path, GUID and age, REPRO hashes,
+and `EX_DLLCHARACTERISTICS` when those payloads parse. A missing directory is
+an empty inventory, not proof the image was built without debug information.
+See [offline binary diagnostics](binary-diagnostics.md#portable-pe-debug-directory).
+
 Configure [Hopper or Ghidra](installation.md#hopper), or the
 [IDA adapter](ida-provider.md), before analyzing a native target. Substitute
 your target, search text and function name or address in these examples:

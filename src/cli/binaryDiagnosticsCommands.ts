@@ -4,6 +4,7 @@ import {
   createRecordedCrashService,
   createBinaryLayoutService,
   createPeResourcesService,
+  createPeDebugDirectoryService,
 } from "../composition/binaryDiagnostics.js";
 import { CLI_COMMANDS } from "../cliCommandNames.js";
 import { logCliCommand } from "../cliLogging.js";
@@ -11,6 +12,7 @@ import type { Logger } from "pino";
 import type { CliInstance } from "./types.js";
 import { withCommandCancellation } from "./commandCancellation.js";
 import { inspectPeResourcesInputSchema } from "../domain/native/peResources.js";
+import { inspectPeDebugDirectoryInputSchema } from "../domain/native/peDebugDirectory.js";
 import { projectAnalysisError } from "../domain/analysisErrorProjection.js";
 import { finishAnalysisCommand } from "./finishAnalysisCommand.js";
 
@@ -48,6 +50,38 @@ export const registerBinaryDiagnosticsCommands = (
               pe,
               "rea-pe-resources",
               "inspect_pe_resources",
+            ),
+        );
+      }),
+  });
+  cli.command(CLI_COMMANDS.inspectPeDebugDirectory, {
+    description:
+      "Inspect PE debug-directory CodeView, repro and related payloads without fetching symbols",
+    args: z.object({ path: z.string().describe("Local PE32/PE32+ image") }),
+    options: z.object({
+      maxFileBytes: inspectPeDebugDirectoryInputSchema.shape.max_file_bytes,
+      maxEntries: inspectPeDebugDirectoryInputSchema.shape.max_entries,
+    }),
+    run: ({ args, options }) =>
+      withCommandCancellation(async (signal) => {
+        const pe = createPeDebugDirectoryService();
+        return await logCliCommand(
+          logger,
+          CLI_COMMANDS.inspectPeDebugDirectory,
+          async () =>
+            finishAnalysisCommand(
+              () =>
+                pe.inspect(
+                  {
+                    path: resolve(args.path),
+                    max_file_bytes: options.maxFileBytes,
+                    max_entries: options.maxEntries,
+                  },
+                  { signal },
+                ),
+              pe,
+              "rea-pe-debug-directory",
+              "inspect_pe_debug_directory",
             ),
         );
       }),

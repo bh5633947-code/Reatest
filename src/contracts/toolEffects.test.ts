@@ -26,6 +26,8 @@ const EXECUTION_WORDING_EXCEPTIONS: Readonly<Record<string, string>> = {
   inspect_native_load_image: "states that it does not execute the target",
   resolve_native_call_targets: "states that it does not execute code",
   inspect_pe_resources: "states that it does not execute the image",
+  inspect_pe_debug_directory:
+    "states that it does not execute the image or fetch a PDB",
   inspect_go_binary: "reads embedded metadata without executing the target",
   inspect_rust_binary:
     "reads an embedded dependency list without executing the target",

@@ -18,6 +18,10 @@ import {
   inspectPeResourcesInputSchema,
   peResourcesSchema,
 } from "../../domain/native/peResources.js";
+import {
+  inspectPeDebugDirectoryInputSchema,
+  peDebugDirectorySchema,
+} from "../../domain/native/peDebugDirectory.js";
 
 /** Caller-selected delivery of completed binary layout Evidence. */
 export const inspectBinaryLayoutRequestSchema =
@@ -36,6 +40,21 @@ export const BINARY_DIAGNOSTICS_TOOL_CONTRACTS = [
     examples: [
       {
         title: "Inspect PE resource identities and icon relationships",
+        input: { path: "/artifacts/application.exe" },
+      },
+    ],
+  },
+  {
+    name: "inspect_pe_debug_directory",
+    ...toolContractMetadata("inspect_pe_debug_directory"),
+    kind: "native-provider",
+    description:
+      "Inspect one explicit local PE32/PE32+ image's IMAGE_DEBUG_DIRECTORY without executing it, opening a disassembler or fetching a PDB. Returns every directory entry with original file locations, payload SHA-256, and decoded CodeView RSDS/NB10 PDB path/GUID/age, REPRO hash and EX_DLLCHARACTERISTICS when those payloads parse. Unknown types and unparsed CodeView magics remain explicit. A missing directory is an empty inventory, not proof the image was built without debug information. Reads a stable regular file; malformed mappings, truncated tables and exhausted budgets return no partial success. Portable on supported Node hosts; no Windows SDK or engine installation required.",
+    inputSchema: inspectPeDebugDirectoryInputSchema,
+    outputSchema: evidenceResultOf(peDebugDirectorySchema),
+    examples: [
+      {
+        title: "Inspect PE debug-directory CodeView and repro payloads",
         input: { path: "/artifacts/application.exe" },
       },
     ],

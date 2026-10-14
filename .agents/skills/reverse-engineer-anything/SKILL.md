@@ -199,6 +199,11 @@ explicit path or endpoint and do not need it.
 - PE resource type/name/language trees and static icon group references:
   `inspect_pe_resources` with an explicit path. This portable operation requires
   no active target or engine; opaque payloads retain file ranges and SHA-256.
+- PE `IMAGE_DEBUG_DIRECTORY` CodeView/RSDS PDB path, GUID, age, REPRO hash and
+  related payloads: `inspect_pe_debug_directory` with an explicit path. This
+  portable operation does not fetch a PDB or execute the image. A missing
+  directory is empty inventory, not proof the image was built without debug
+  information.
 - Native executable, library, or analysis database: `open_binary`, then
   use focused analysis tools directly; call `binary_overview` when metadata or
   inventory context is useful and available from the selected provider.

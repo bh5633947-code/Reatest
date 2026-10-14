@@ -262,6 +262,18 @@ Other payloads are opaque, and this operation does not decode images or simulate
 Windows resource loading. Consult the budgets and supported tree profile in
 [offline binary diagnostics](https://github.com/morluto/rea/blob/main/docs/binary-diagnostics.md).
 
+## Offline PE debug directory
+
+Use `inspect_pe_debug_directory` with an absolute `path`, or
+`rea inspect-pe-debug-directory ./selected.exe --json`, for portable PE32/PE32+
+debug-directory inspection without opening a native target or fetching a PDB.
+Preserve returned Evidence: entry types, original directory/payload ranges,
+payload hashes, CodeView RSDS/NB10 path/GUID/age, REPRO hashes and
+`EX_DLLCHARACTERISTICS`. A missing directory is an empty inventory, not proof
+the image was built without debug information. PDB paths are file content and
+do not authenticate a companion PDB. Consult the budgets in
+[offline binary diagnostics](https://github.com/morluto/rea/blob/main/docs/binary-diagnostics.md#portable-pe-debug-directory).
+
 For exact core-module import/export differences, use `compare_wasm_interfaces`
 with two complete inspection Evidence records (or current-session retained
 references) and explicit scope. Preserve unknown types/duplicate names; static

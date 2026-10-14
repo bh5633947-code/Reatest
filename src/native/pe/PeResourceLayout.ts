@@ -28,6 +28,13 @@ interface Section {
   readonly size: number;
 }
 
+export interface PeDataDirectory {
+  readonly index: number;
+  readonly headerOffset: number;
+  readonly rva: number;
+  readonly size: number;
+}
+
 // RVA ownership follows the declared virtual extent. Raw size describes
 // initialized file bytes and can include file-alignment padding; loaders may
 // map page-rounded tails, but those bytes are outside the declared section.
@@ -35,7 +42,7 @@ const virtualExtent = (section: Section): number =>
   section.virtualSize === 0 ? section.size : section.virtualSize;
 
 /** Header admission and unambiguous file-backed RVA mapping, independent of section names. */
-export const readPeResourceLayout = (bytes: Buffer) => {
+export const readPeImageLayout = (bytes: Buffer) => {
   requirePeRange(bytes, 0, 64);
   if (bytes.readUInt16LE(0) !== 0x5a4d) peFailure("Expected an MZ PE image.");
   const pe = bytes.readUInt32LE(60);
@@ -134,17 +141,41 @@ export const readPeResourceLayout = (bytes: Buffer) => {
     requirePeRange(bytes, offset, size);
     return offset;
   };
-  const directoryAt = optional + directoriesAt + 16;
-  const rva = directoryCount > 2 ? bytes.readUInt32LE(directoryAt) : 0;
-  const size = directoryCount > 2 ? bytes.readUInt32LE(directoryAt + 4) : 0;
-  if ((rva === 0) !== (size === 0))
-    peFailure("Inconsistent PE resource directory RVA/size.");
+  const directories: PeDataDirectory[] = [];
+  for (let index = 0; index < directoryCount; index++) {
+    const headerOffset = optional + directoriesAt + index * 8;
+    directories.push({
+      index,
+      headerOffset,
+      rva: bytes.readUInt32LE(headerOffset),
+      size: bytes.readUInt32LE(headerOffset + 4),
+    });
+  }
   return {
     format: magic === 0x10b ? ("pe32" as const) : ("pe32-plus" as const),
     machine: bytes.readUInt16LE(pe + 4),
+    headerSize,
+    directoriesAt: optional + directoriesAt,
+    directories,
+    map,
+  };
+};
+
+/** Header admission and unambiguous file-backed RVA mapping, independent of section names. */
+export const readPeResourceLayout = (bytes: Buffer) => {
+  const image = readPeImageLayout(bytes);
+  const directory = image.directories[2];
+  const directoryAt = image.directoriesAt + 16;
+  const rva = directory?.rva ?? 0;
+  const size = directory?.size ?? 0;
+  if ((rva === 0) !== (size === 0))
+    peFailure("Inconsistent PE resource directory RVA/size.");
+  return {
+    format: image.format,
+    machine: image.machine,
     directoryAt,
     rva,
     size,
-    map,
+    map: image.map,
   };
 };

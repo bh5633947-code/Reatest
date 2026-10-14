@@ -9,9 +9,14 @@ import { wasmArtifactModule } from "../composition/wasm.js";
 import { registerWasmTools } from "./registerWasmTools.js";
 import { snapshotEnvironment } from "../process/snapshotEnvironment.js";
 import { captureProviderEnvironment } from "./providerEnvironment.js";
-import { createPeResourcesService } from "../composition/binaryDiagnostics.js";
+import {
+  createPeResourcesService,
+  createPeDebugDirectoryService,
+} from "../composition/binaryDiagnostics.js";
 import type { PeResourcesService } from "../application/binaryDiagnostics/PeResourcesService.js";
 import { registerPeResourcesTool } from "./registerPeResourcesTool.js";
+import type { PeDebugDirectoryService } from "../application/binaryDiagnostics/PeDebugDirectoryService.js";
+import { registerPeDebugDirectoryTool } from "./registerPeDebugDirectoryTool.js";
 import type { EvmInterfaceService } from "../application/evm/EvmInterfaceService.js";
 import { evmInterfaceModule } from "../composition/evm.js";
 import { registerEvmTools } from "./registerEvmTools.js";
@@ -309,6 +314,7 @@ export const createServer = (
     options.webModuleTrace ?? createWebModuleTraceService(environment);
   const goBinary = options.goBinary ?? createGoBinaryService();
   const peResources = createPeResourcesService();
+  const peDebugDirectory = createPeDebugDirectoryService();
   const webNetworkCapture =
     options.webNetworkCapture ?? createWebNetworkCaptureService(environment);
   const javascriptRecovery =
@@ -385,6 +391,7 @@ export const createServer = (
       webModuleTrace.close(),
       goBinary.close(),
       peResources.close(),
+      peDebugDirectory.close(),
       webNetworkCapture.close(),
       javascriptRecovery.close?.() ?? Promise.resolve(),
       artifactResources.close(),
@@ -434,6 +441,7 @@ export const createServer = (
     artifactResources,
     goBinary,
     peResources,
+    peDebugDirectory,
     webNetworkCapture,
   };
   registerBinaryAnalysisTools(toolContext);
@@ -628,6 +636,7 @@ const registerConfiguredAnalysisTools = (
     withAdmittedAnalysis,
     goBinary,
     peResources,
+    peDebugDirectory,
     webNetworkCapture,
   }: ServerToolContext,
   android: AndroidAnalysisPort,
@@ -669,6 +678,13 @@ const registerConfiguredAnalysisTools = (
   registerPeResourcesTool(
     server,
     peResources,
+    toolLogger,
+    recordEvidence,
+    withAdmittedAnalysis,
+  );
+  registerPeDebugDirectoryTool(
+    server,
+    peDebugDirectory,
     toolLogger,
     recordEvidence,
     withAdmittedAnalysis,
@@ -794,6 +810,7 @@ const createSessionRecorders = (
 interface ServerToolContext extends ReturnType<typeof createSessionRecorders> {
   readonly goBinary: GoBinaryService;
   readonly peResources: PeResourcesService;
+  readonly peDebugDirectory: PeDebugDirectoryService;
   readonly webNetworkCapture: WebNetworkCaptureService;
   readonly artifactResources: ArtifactResourceScope;
   readonly server: EvidenceMcpServer;
