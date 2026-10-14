@@ -4,6 +4,7 @@ import { copyFile, mkdir, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
+import { pathToFileURL } from "node:url";
 
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
@@ -485,6 +486,7 @@ it("preserves complete line-comment source-map URLs through CLI and MCP", async 
           declared_url: declaredUrl,
           declared_url_sha256: digest,
           resolved_path: "app.js.map",
+          resolution_status: "resolved",
           available: true,
         },
         evidence: expect.objectContaining({
@@ -507,6 +509,7 @@ it("preserves complete line-comment source-map URLs through CLI and MCP", async 
         properties: {
           declared_url_sha256: digest,
           resolved_path: "app.js.map",
+          resolution_status: "resolved",
         },
       }),
     );
@@ -565,6 +568,7 @@ it("resolves source-map URL paths once without changing their declarations", asy
           declared_url: declaredUrl,
           declared_url_sha256: digest,
           resolved_path: path,
+          resolution_status: "resolved",
           available: true,
         },
         evidence: expect.objectContaining({
@@ -587,7 +591,11 @@ it("resolves source-map URL paths once without changing their declarations", asy
       expect.objectContaining({
         relation: "maps_to",
         target_node_id: map?.node_id,
-        properties: { declared_url_sha256: digest, resolved_path: path },
+        properties: {
+          declared_url_sha256: digest,
+          resolved_path: path,
+          resolution_status: "resolved",
+        },
       }),
     );
   }
@@ -1226,7 +1234,7 @@ describe("application workflow CLI and MCP capture lifetimes", () => {
         "--input-type=module",
         "--eval",
         "const module = await import(process.argv[1]); console.log(JSON.stringify(module.default()));",
-        join(root, String(index), "parser.mjs"),
+        pathToFileURL(join(root, String(index), "parser.mjs")).href,
       ]);
       expect(JSON.parse(stdout)).toEqual({
         kind: "capture-boundary",
@@ -1576,8 +1584,8 @@ it("retains bundled isolated-world contextBridge APIs through dedicated and gene
           world: "isolated",
           world_id: { status: "literal", value: 1001, expression: null },
           api_key: "isolatedApi",
+          api_status: "object-literal",
           members: ["ping"],
-          resolution_basis: "wrapper-substitution",
         }),
         evidence: expect.objectContaining({
           location: expect.objectContaining({
@@ -1594,10 +1602,18 @@ const runCli = async (
   arguments_: readonly string[],
   environment: Readonly<Record<string, string>> = {},
 ): Promise<unknown> => {
+  const cliArguments = [...arguments_];
+  const input = cliArguments[1];
+  if (input?.startsWith("{")) {
+    const directory = await createTestTempDirectory("rea-workflow-cli-input-");
+    const path = join(directory, "input.json");
+    await writeFile(path, input);
+    cliArguments[1] = path;
+  }
   try {
     const { stdout } = await execute(
       process.execPath,
-      ["scripts/rea.mjs", ...arguments_],
+      ["scripts/rea.mjs", ...cliArguments],
       {
         cwd: process.cwd(),
         env: { ...process.env, ...environment },

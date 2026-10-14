@@ -45,12 +45,12 @@ const installationHost = (
   architecture: "x64",
   readText: () => "application.version=12.1.4\napplication.java.min=21\n",
   executable: () => true,
-  probeJava: () => ({
+  probeJava: (command) => ({
     osArch: "amd64",
     osName: platform === "win32" ? "Windows 11" : "Linux",
     version: "21.0.11",
     major: 21,
-    home: "/usr/lib/jvm/jdk-21",
+    home: command === "java.exe" ? "C:\\Java\\jdk-21" : "/usr/lib/jvm/jdk-21",
     bits: 64,
     runtime: "jdk",
     vmName: "OpenJDK 64-Bit Server VM",

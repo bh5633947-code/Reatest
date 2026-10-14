@@ -1,13 +1,15 @@
 import {
   chmod,
+  copyFile,
   cp,
   mkdir,
   readFile,
   readdir,
   rename,
+  rm,
   writeFile,
 } from "node:fs/promises";
-import { dirname, join, matchesGlob } from "node:path";
+import { delimiter, dirname, join, matchesGlob } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { afterAll, beforeAll, expect, it } from "vitest";
@@ -134,6 +136,7 @@ it("keeps every translated README and authored guide on the documentation lane",
     ...readmes,
     ...translated,
     "docs/guide.md",
+    "native/windows/README.md",
     "AGENTS.md",
     "CONTRIBUTING.md",
   ]);
@@ -214,6 +217,29 @@ it("does not charge a documentation PR for unrelated implementation updates on m
     package: false,
   });
 });
+
+it.each(["modify", "delete", "rename"])(
+  "keeps the packaged portable guide on the package lane after %s",
+  async (operation) => {
+    const { directory } = await fixture();
+    const path = "docs/portable-windows.md";
+    const base = await change(directory, [path], "Portable artifact input\n");
+    if (operation === "modify")
+      await writeFile(join(directory, path), "Updated portable guide\n");
+    else if (operation === "delete") await rm(join(directory, path));
+    else await rename(join(directory, path), join(directory, "docs/moved.md"));
+    const head = await commit(directory);
+    expect(await classify(directory, base, head)).toMatchObject({
+      code: true,
+      package: true,
+      runtime: true,
+      docs: true,
+      apple: false,
+      browser: false,
+      evm: false,
+    });
+  },
+);
 
 it.each([
   "src/gdb/GdbSessionManager.ts",
@@ -310,8 +336,9 @@ it("requires the reverse-tool gate when its scope is selected", async () => {
     tier: "fast",
     reverse_tools: "true",
   };
-  const command = new URL("../../../scripts/ci/required.mjs", import.meta.url)
-    .pathname;
+  const command = fileURLToPath(
+    new URL("../../../scripts/ci/required.mjs", import.meta.url),
+  );
   await expect(
     execFileAsync(process.execPath, [command], {
       env: {
@@ -324,7 +351,12 @@ it("requires the reverse-tool gate when its scope is selected", async () => {
         }),
       },
     }),
-  ).rejects.toMatchObject({ code: 1 });
+  ).rejects.toMatchObject({
+    code: 1,
+    stderr: expect.stringContaining(
+      "CI lanes did not pass: reverse-tools-quality",
+    ),
+  });
   await expect(
     execFileAsync(process.execPath, [command], {
       env: {
@@ -337,7 +369,12 @@ it("requires the reverse-tool gate when its scope is selected", async () => {
         }),
       },
     }),
-  ).rejects.toMatchObject({ code: 1 });
+  ).rejects.toMatchObject({
+    code: 1,
+    stderr: expect.stringContaining(
+      "CI lanes did not pass: reverse-tools-quality",
+    ),
+  });
   await expect(
     execFileAsync(process.execPath, [command], {
       env: {
@@ -433,14 +470,35 @@ it.each(["", "not-a-commit"])(
   },
 );
 
+/** Substitute only the GitHub CLI response; ancestor checks still use real Git. */
+async function fakeGitHubCli(directory: string, fail = false) {
+  const bin = join(directory, "fake-bin");
+  await mkdir(bin);
+  if (process.platform === "win32") {
+    // execFile cannot launch a batch or POSIX shell fixture on Windows. A renamed
+    // Node executable handles `gh api ...` using the fixture's local `api` script.
+    await copyFile(process.execPath, join(bin, "gh.exe"));
+    await writeFile(
+      join(directory, "api"),
+      fail
+        ? "process.exitCode = 1;\n"
+        : 'process.stdout.write(require("node:fs").readFileSync(process.env.GH_FIXTURE_RESPONSE, "utf8"));\n',
+    );
+  } else {
+    const gh = join(bin, "gh");
+    await writeFile(
+      gh,
+      fail ? "#!/bin/sh\nexit 1\n" : '#!/bin/sh\ncat "$GH_FIXTURE_RESPONSE"\n',
+    );
+    await chmod(gh, 0o755);
+  }
+  return `${bin}${delimiter}${process.env.PATH}`;
+}
+
 it("selects only a trusted successful ancestor from recent CI push runs", async () => {
   const { directory, base } = await fixture();
   const head = await change(directory, ["src/evm/client.ts"]);
-  const bin = join(directory, "fake-bin");
-  await mkdir(bin);
-  const gh = join(bin, "gh");
-  await writeFile(gh, '#!/bin/sh\ncat "$GH_FIXTURE_RESPONSE"\n');
-  await chmod(gh, 0o755);
+  const path = await fakeGitHubCli(directory);
   const response = join(directory, "runs.json");
   await writeFile(
     response,
@@ -466,12 +524,16 @@ it("selects only a trusted successful ancestor from recent CI push runs", async 
   const output = join(directory, "baseline-output");
   const result = await execFileAsync(
     process.execPath,
-    [new URL("../../../scripts/ci/baseline.mjs", import.meta.url).pathname],
+    [
+      fileURLToPath(
+        new URL("../../../scripts/ci/baseline.mjs", import.meta.url),
+      ),
+    ],
     {
       cwd: directory,
       env: {
         ...process.env,
-        PATH: `${bin}:${process.env.PATH}`,
+        PATH: path,
         GH_FIXTURE_RESPONSE: response,
         CI_REPOSITORY: "owner/repo",
         CI_DEFAULT_BRANCH: "main",
@@ -487,19 +549,19 @@ it("selects only a trusted successful ancestor from recent CI push runs", async 
 it("returns an empty baseline when GitHub lookup fails", async () => {
   const { directory, base } = await fixture();
   const head = await change(directory, ["src/evm/client.ts"]);
-  const bin = join(directory, "fake-bin");
-  await mkdir(bin);
-  const gh = join(bin, "gh");
-  await writeFile(gh, "#!/bin/sh\nexit 1\n");
-  await chmod(gh, 0o755);
+  const path = await fakeGitHubCli(directory, true);
   const result = await execFileAsync(
     process.execPath,
-    [new URL("../../../scripts/ci/baseline.mjs", import.meta.url).pathname],
+    [
+      fileURLToPath(
+        new URL("../../../scripts/ci/baseline.mjs", import.meta.url),
+      ),
+    ],
     {
       cwd: directory,
       env: {
         ...process.env,
-        PATH: `${bin}:${process.env.PATH}`,
+        PATH: path,
         CI_REPOSITORY: "owner/repo",
         CI_DEFAULT_BRANCH: "main",
         HEAD_SHA: head,
@@ -678,6 +740,38 @@ it.each([
     { code: true, runtime: true, package: true, javascript_recovery: true },
   ],
   ["install.sh", { code: true, runtime: true, package: true, evm: false }],
+  [
+    "scripts/package-portable-windows.mjs",
+    { code: true, runtime: true, package: true, apple: false, evm: false },
+  ],
+  [
+    "scripts/verify-portable-windows.mjs",
+    { code: true, runtime: true, package: true, apple: false, evm: false },
+  ],
+  [
+    "scripts/lib/portable-dependencies.mjs",
+    { code: true, runtime: true, package: true, apple: false, evm: false },
+  ],
+  [
+    "scripts/lib/portable-inventory.mjs",
+    { code: true, runtime: true, package: true, apple: false, evm: false },
+  ],
+  [
+    "scripts/lib/portable-launcher.ps1",
+    { code: true, runtime: true, package: true, apple: false, evm: false },
+  ],
+  [
+    "tests/process-global/runnerCancellation.test.ts",
+    { code: true, runtime: true, package: true, apple: false, evm: false },
+  ],
+  [
+    "src/ghidra/GhidraLauncher.ts",
+    { code: true, runtime: true, package: true, apple: false, evm: false },
+  ],
+  [
+    "src/ghidra/GhidraJavaLaunch.ts",
+    { code: true, runtime: true, package: true, apple: false, evm: false },
+  ],
   [
     ".agents/skills/reverse-engineer-anything/SKILL.md",
     { code: true, runtime: true, docs: true, package: false, evm: false },

@@ -74,7 +74,7 @@ it
       const { stdout } = await parent;
       const { pid } = JSON.parse(stdout) as { pid: number };
       orphanPid = pid;
-      if (alternateMode) {
+      {
         const processEntry = join(procRoot, String(pid));
         await mkdir(processEntry);
         for (const name of ["cmdline", "comm", "exe"])

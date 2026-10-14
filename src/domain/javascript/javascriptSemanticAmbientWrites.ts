@@ -56,9 +56,11 @@ const createAmbientPathResolver = (
     const prior = possibleWrites ? undefined : cached.get(node);
     if (prior !== undefined) return prior;
     const result = new Map<string, AmbientPath>();
-    const pending: { node: t.Node; suffix: AmbientProjection }[] = [
-      { node, suffix: [] },
-    ];
+    const pending: {
+      node: t.Node;
+      suffix: AmbientProjection;
+      capture: t.Node | undefined;
+    }[] = [{ node, suffix: [], capture }];
     // Join projections at their producing expression, rather than enumerating
     // alias histories. Each key can only widen to a wildcard, and conflicting
     // depths widen to unknown, so diamonds and cycles have finite state.
@@ -105,7 +107,7 @@ const createAmbientPathResolver = (
       // A widened projection is a possible write, never proof of an intrinsic.
       if (suffix === undefined && !possibleWrites) continue;
       const continueWith = (node: t.Node, path: AmbientProjection = suffix) =>
-        pending.push({ node, suffix: path });
+        pending.push({ node, suffix: path, capture: current.capture });
       if (
         t.isMetaProperty(root) &&
         root.meta.name === "import" &&
@@ -127,11 +129,11 @@ const createAmbientPathResolver = (
         if (binding === undefined) continue;
         const stable = semanticStableInitializer(binding, state);
         const initializers = possibleWrites
-          ? capture === undefined
+          ? current.capture === undefined
             ? binding.initializers
             : semanticMutationInitializers(
                 binding,
-                capture,
+                current.capture,
                 state.parentsByNode,
               ).initializers
           : stable === undefined
@@ -140,6 +142,7 @@ const createAmbientPathResolver = (
         for (const initializer of initializers)
           pending.push({
             node: initializer.node,
+            capture: initializer.node,
             suffix:
               suffix === undefined
                 ? undefined

@@ -7,19 +7,36 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
+import { stripVTControlCharacters } from "node:util";
 
 import { describe, expect, it } from "vitest";
 
 import { execFileOutput } from "../../../src/process/ExecFileOutput.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 
-const run = (root: string, command: string, arguments_: readonly string[]) =>
-  execFileOutput(command, arguments_, {
-    cwd: root,
-    stopSignal: "SIGTERM",
-    timeout: 30_000,
-    maxBuffer: 1024 * 1024,
-  });
+const run = async (
+  root: string,
+  command: string,
+  arguments_: readonly string[],
+) => {
+  try {
+    const output = await execFileOutput(command, arguments_, {
+      cwd: root,
+      stopSignal: "SIGTERM",
+      timeout: 30_000,
+      maxBuffer: 1024 * 1024,
+    });
+    return { ...output, stdout: stripVTControlCharacters(output.stdout) };
+  } catch (cause: unknown) {
+    if (
+      cause instanceof Error &&
+      "stdout" in cause &&
+      typeof cause.stdout === "string"
+    )
+      cause.stdout = stripVTControlCharacters(cause.stdout);
+    throw cause;
+  }
+};
 
 const git = (root: string, ...arguments_: string[]) =>
   run(root, "git", arguments_);

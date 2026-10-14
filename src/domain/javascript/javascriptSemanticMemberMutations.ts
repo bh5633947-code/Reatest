@@ -69,6 +69,19 @@ export function* collectSemanticMemberMutationsSteps(
     node: t.Node | undefined,
   ): void => {
     const identity = semanticRequireExportsIdentity(specifier, path);
+    // Configuration entries are copied strings, not aliases of their container.
+    // Passing one to a call cannot mutate the process env/argv slot through it.
+    if (
+      effect === "escape" &&
+      identity.specifier === "process" &&
+      identity.path.length === 2 &&
+      typeof identity.path[1] === "string" &&
+      (identity.path[0] === "env" ||
+        (identity.path[0] === "argv" &&
+          /^(?:0|[1-9][0-9]*)$/u.test(identity.path[1]) &&
+          Number(identity.path[1]) < 2 ** 32 - 1))
+    )
+      return;
     const key = JSON.stringify([
       "required",
       identity.specifier,

@@ -1398,7 +1398,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
         while (references.hasNext()) {
             monitor.checkCancelled();
             Reference reference = references.next();
-            if (reference.isEntryPointReference()) {
+            if (!isObservedReference(reference)) {
                 continue;
             }
             sources.add(reference.getFromAddress());
@@ -3676,7 +3676,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
                 for (Reference reference : currentProgram.getReferenceManager()
                         .getReferencesFrom(address)) {
                     monitor.checkCancelled();
-                    if (!reference.isEntryPointReference()) visitor.accept(reference);
+                    if (isObservedReference(reference)) visitor.accept(reference);
                 }
             }
             else {
@@ -3685,13 +3685,20 @@ public final class ReaGhidraBridge extends HeadlessScript {
                 while (iterator.hasNext()) {
                     monitor.checkCancelled();
                     Reference reference = iterator.next();
-                    if (!reference.isEntryPointReference()) visitor.accept(reference);
+                    if (isObservedReference(reference)) visitor.accept(reference);
                 }
             }
         }
     }
 
+    /** Loader entry markers are bookkeeping, not actionable source references. */
+    private static boolean isObservedReference(Reference reference) {
+        return !reference.isEntryPointReference();
+    }
+
     private static void addReference(TreeMap<String, Reference> observed, Reference reference) {
+        // Instruction queries also enter here without the function-body visitor.
+        if (!isObservedReference(reference)) return;
         String key = canonicalAddress(reference.getFromAddress()) + "\u0000" +
             canonicalAddress(reference.getToAddress()) + "\u0000" +
             reference.getReferenceType().getName() + "\u0000" +

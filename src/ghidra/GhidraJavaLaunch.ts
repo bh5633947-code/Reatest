@@ -1,37 +1,50 @@
 import { snapshotEnvironment } from "../process/snapshotEnvironment.js";
-import { dirname, join } from "node:path";
+import { posix, win32 } from "node:path";
 import {
-  execFileOutput,
-  execFileOutputFailure,
-  type ExecFileOutputFailure,
-} from "../process/ExecFileOutput.js";
+  OwnedCommandFailure,
+  runOwnedCommand,
+} from "../process/OwnedCommand.js";
+import type { spawnOwnedProviderProcess } from "../process/ProviderProcess.js";
 
-export const GHIDRA_LAUNCH_SUPPORT_CAPTURE_BYTES = 64 * 1024;
-type LaunchSupportPhase = "-envvars" | "-vmargs";
-type LaunchSupportOutcome = Omit<
-  ExecFileOutputFailure,
-  "killed" | "outputTruncated"
-> & {
-  readonly killed: boolean | null;
-  readonly outputTruncated: boolean | null;
-};
+/** Complete release configuration and warnings share this retained byte budget. */
+export const GHIDRA_LAUNCH_SUPPORT_OUTPUT_BYTES = 64 * 1024;
 
+/** Keep probe phase and its owned outcome together, including unresolved cleanup. */
 export class GhidraLaunchSupportError extends Error {
-  readonly outcome: LaunchSupportOutcome | undefined;
-
-  constructor(phase: LaunchSupportPhase, cause: unknown) {
+  constructor(
+    readonly phase: "-envvars" | "-vmargs",
+    cause: unknown,
+  ) {
     super(`Ghidra LaunchSupport ${phase} failed`, { cause });
     this.name = "GhidraLaunchSupportError";
-    const outcome = execFileOutputFailure(cause);
-    this.outcome =
-      outcome === undefined
-        ? undefined
-        : {
-            ...outcome,
-            killed: outcome.code === "ABORT_ERR" ? null : outcome.killed,
-            outputTruncated:
-              outcome.code === "ABORT_ERR" ? null : outcome.outputTruncated,
-          };
+  }
+
+  get ownedFailure(): OwnedCommandFailure | undefined {
+    return this.cause instanceof OwnedCommandFailure ? this.cause : undefined;
+  }
+
+  get outcome() {
+    const failure = this.ownedFailure;
+    const snapshot = failure?.snapshot;
+    if (snapshot == null) return undefined;
+    return {
+      stdout: snapshot.stdout.text,
+      stderr: snapshot.stderr.text,
+      stdoutBytes: snapshot.stdout.observedBytes,
+      stderrBytes: snapshot.stderr.observedBytes,
+      stdoutTruncated: snapshot.stdout.observedBytes > snapshot.stdout.bytes,
+      stderrTruncated: snapshot.stderr.observedBytes > snapshot.stderr.bytes,
+      outputTruncated: snapshot.diagnosticTruncated === true,
+      // Cancellation alone does not prove that a kill caused the observed exit.
+      killed:
+        typeof snapshot.signal === "string"
+          ? true
+          : failure?.reason === "process" && snapshot.exitCode != null
+            ? false
+            : null,
+      exitCode: snapshot.exitCode ?? null,
+      signal: snapshot.signal ?? null,
+    };
   }
 }
 
@@ -71,38 +84,44 @@ const rejectJvmPlatformOverrides = (arguments_: readonly string[]): void => {
 export const ghidraJavaLaunch = async (options: {
   readonly platform: NodeJS.Platform;
   readonly analyzeHeadlessPath: string;
-  readonly javaHome?: string;
+  readonly javaHome: string;
   readonly javaVmName?: string;
   readonly homeRoot: string;
+  readonly configRoot: string;
+  readonly cacheRoot: string;
   readonly tempRoot: string;
   readonly arguments: readonly string[];
   readonly environment: NodeJS.ProcessEnv;
+  readonly runId: string;
+  readonly timeoutMs: number;
   readonly signal?: AbortSignal;
+  readonly spawnProbe?: typeof spawnOwnedProviderProcess;
   readonly onStderr: (mode: "-envvars" | "-vmargs", stderr: string) => void;
 }): Promise<{
   readonly command: string;
   readonly arguments: readonly string[];
   readonly environment: NodeJS.ProcessEnv;
 }> => {
-  const supportRoot = dirname(options.analyzeHeadlessPath);
-  const installRoot = dirname(supportRoot);
-  const selectedJavaHome = options.javaHome ?? options.environment.JAVA_HOME;
-  const command =
-    selectedJavaHome === undefined
-      ? options.platform === "win32"
-        ? "java.exe"
-        : "java"
-      : join(
-          selectedJavaHome,
-          "bin",
-          options.platform === "win32" ? "java.exe" : "java",
-        );
+  const paths = options.platform === "win32" ? win32 : posix;
+  const supportRoot = paths.dirname(options.analyzeHeadlessPath);
+  const installRoot = paths.dirname(supportRoot);
+  const command = paths.join(
+    options.javaHome,
+    "bin",
+    options.platform === "win32" ? "java.exe" : "java",
+  );
   const isolatedProperties = [
     `-Duser.home=${options.homeRoot}`,
     `-Djava.io.tmpdir=${options.tempRoot}`,
+    // Ghidra's application properties take precedence over XDG/Windows env.
+    // These follow release VM arguments so settings/cache/temp stay session-owned.
+    `-Dapplication.settingsdir=${options.configRoot}`,
+    `-Dapplication.cachedir=${options.cacheRoot}`,
+    `-Dapplication.tempdir=${options.tempRoot}`,
   ];
   const supportArguments = [
     ...isolatedProperties,
+    ...(options.platform === "win32" ? ["-XX:-UsePerfData"] : []),
     // Only identified HotSpot VMs have these unified-logging semantics. OpenJ9
     // uses different -Xlog behavior; missing VM identity must stay unknown.
     ...(/^(?:OpenJDK|Java HotSpot\(TM\)) (?:64-Bit )?(?:Server|Client|Zero) VM$/u.test(
@@ -111,29 +130,43 @@ export const ghidraJavaLaunch = async (options: {
       ? ["-Xlog:disable", "-Xlog:all=warning:stderr"]
       : []),
     "-cp",
-    join(supportRoot, "LaunchSupport.jar"),
+    paths.join(supportRoot, "LaunchSupport.jar"),
     "LaunchSupport",
     installRoot,
   ];
   const environment = {
     ...snapshotEnvironment(options.environment, options.platform),
   };
-  const supportOutput = async (phase: LaunchSupportPhase) => {
+  const probe = async (mode: "-envvars" | "-vmargs") => {
     try {
-      return await execFileOutput(command, [...supportArguments, phase], {
-        env: environment,
-        maxBuffer: GHIDRA_LAUNCH_SUPPORT_CAPTURE_BYTES,
-        // Wait for the helper's exit on abort so no probe outlives its owner.
-        stopSignal: "SIGTERM",
-        ...(options.signal === undefined ? {} : { signal: options.signal }),
-      });
+      return await runOwnedCommand(
+        {
+          command,
+          arguments: [...supportArguments, mode],
+          runId: options.runId,
+          expectedCommand: command,
+          platform: options.platform,
+          env: environment,
+          hostEnvironment: {},
+        },
+        {
+          timeoutMs: options.timeoutMs,
+          diagnosticBytes: GHIDRA_LAUNCH_SUPPORT_OUTPUT_BYTES,
+        },
+        {
+          ...(options.signal === undefined ? {} : { signal: options.signal }),
+          ...(options.spawnProbe === undefined
+            ? {}
+            : { launcher: options.spawnProbe }),
+        },
+      );
     } catch (cause: unknown) {
-      throw new GhidraLaunchSupportError(phase, cause);
+      throw new GhidraLaunchSupportError(mode, cause);
     }
   };
-  const configuredEnvironment = await supportOutput("-envvars");
-  options.onStderr("-envvars", configuredEnvironment.stderr);
-  for (const line of configuredEnvironment.stdout.split(/\r?\n/u)) {
+  const configuredEnvironment = await probe("-envvars");
+  options.onStderr("-envvars", configuredEnvironment.stderr.text);
+  for (const line of configuredEnvironment.stdout.text.split(/\r?\n/u)) {
     if (line === "") continue;
     const separator = line.indexOf("=");
     const sourceKey = line.slice(0, separator);
@@ -157,9 +190,9 @@ export const ghidraJavaLaunch = async (options: {
   ] as const) {
     rejectJvmPlatformOverrides(jvmEnvironmentArguments(environment[key] ?? ""));
   }
-  const configuredArguments = await supportOutput("-vmargs");
-  options.onStderr("-vmargs", configuredArguments.stderr);
-  const vmArguments = configuredArguments.stdout
+  const configuredArguments = await probe("-vmargs");
+  options.onStderr("-vmargs", configuredArguments.stderr.text);
+  const vmArguments = configuredArguments.stdout.text
     .split(/\r?\n/u)
     .filter((line) => line !== "");
   if (
@@ -180,9 +213,17 @@ export const ghidraJavaLaunch = async (options: {
       "-XX:CICompilerCount=2",
       "-Djava.awt.headless=true",
       ...isolatedProperties,
+      ...(options.platform === "win32" ? ["-XX:-UsePerfData"] : []),
       "-showversion",
       "-cp",
-      join(installRoot, "Ghidra", "Framework", "Utility", "lib", "Utility.jar"),
+      paths.join(
+        installRoot,
+        "Ghidra",
+        "Framework",
+        "Utility",
+        "lib",
+        "Utility.jar",
+      ),
       "ghidra.Ghidra",
       "ghidra.app.util.headless.AnalyzeHeadless",
       ...options.arguments,

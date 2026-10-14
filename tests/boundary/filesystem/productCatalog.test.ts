@@ -57,18 +57,9 @@ const README_LINK_DRIFT_MUTATIONS = [
     "(../installation.md#supported-agents)",
     "(../installation.md#missing-agents)",
   ],
-  [
-    "https://rea.tools/zh-CN/guides/native/",
-    "https://rea.tools/zh-CN/missing/",
-  ],
-  [
-    "https://rea.tools/zh-CN/guides/native/",
-    "https://rea.tools/zh-TW/guides/native/",
-  ],
-  [
-    "https://rea.tools/zh-CN/guides/native/",
-    "https://rea.tools/zh-CN/guides/native/?other=1",
-  ],
+  ["../native-investigation.md", "../missing-native.md"],
+  ["../native-investigation.md", "https://rea.tools/zh-TW/guides/native/"],
+  ["../native-investigation.md", "../native-investigation.md?other=1"],
   [
     'src="../assets/rea-hopper-analysis.png"',
     'src="../assets/missing-hopper.png"',

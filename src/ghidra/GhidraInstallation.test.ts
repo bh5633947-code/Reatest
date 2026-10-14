@@ -64,7 +64,8 @@ const host = (
       : undefined,
   executable: (path) =>
     path === HEADLESS || path === MAC_DECOMPILER || path === LINUX_DECOMPILER,
-  probeJava: () => JAVA,
+  probeJava: (command) =>
+    command === "java.exe" ? { ...JAVA, home: "C:\\Java\\jdk-21" } : JAVA,
   ...overrides,
 });
 
@@ -730,6 +731,46 @@ describe("Ghidra installation version admission", () => {
 });
 
 describe("Ghidra configuration paths", () => {
+  it.each([
+    ["configured", "\\\\server\\share\\jdk-21"],
+    ["discovered", "\\\\server\\share\\jdk-21"],
+    ["configured", "\\\\?\\C:\\Java\\jdk-21"],
+    ["discovered", "\\Java\\jdk-21"],
+  ] as const)(
+    "rejects a %s unsupported Windows JDK home %s before advertising availability",
+    (source, javaHome) => {
+      const probeJava = vi.fn(() => ({ ...JAVA, home: javaHome }));
+      const result = inspectGhidraInstallation(
+        {
+          environment: {},
+          installDir: WINDOWS_INSTALL,
+          platform: "win32",
+          architecture: "x64",
+          ...(source === "configured" ? { javaHome } : {}),
+        },
+        host({
+          readText: () =>
+            "application.version=12.1.4\napplication.java.min=21\n",
+          executable: () => true,
+          probeJava,
+        }),
+      );
+      expect(result).toMatchObject({
+        status: "unavailable",
+        javaHome,
+        rejection: {
+          code: "not_configured",
+          reason: expect.stringContaining("ordinary absolute drive path"),
+        },
+      });
+      expect(projectGhidraDoctorInspection(result)).toMatchObject({
+        available: false,
+        registrationEnvironment: {},
+      });
+      if (source === "configured") expect(probeJava).not.toHaveBeenCalled();
+    },
+  );
+
   it.each([
     [{ installDir: "./ghidra" }, "GHIDRA_INSTALL_DIR must be absolute"],
     [{ installDir: INSTALL, javaHome: "./jdk" }, "JAVA_HOME must be absolute"],

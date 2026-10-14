@@ -10,7 +10,10 @@ import type { OwnedProcessGroup } from "../../../src/process/ProcessOwnership.js
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { ProviderCleanupError } from "../../../src/domain/providerCleanupError.js";
 import { projectAnalysisError } from "../../../src/domain/analysisErrorProjection.js";
-import { spawnOwnedProviderProcess } from "../../../src/process/ProviderProcess.js";
+import {
+  spawnOwnedProviderProcess,
+  type ProviderProcessHandle,
+} from "../../../src/process/ProviderProcess.js";
 import { javaScriptWorkerMemoryLimitBytes } from "../../../src/process/JavaScriptWorkerMemoryLimit.js";
 import type { JavaScriptArtifactFile } from "../../../src/domain/javascript/javascriptArtifactFiles.js";
 
@@ -162,10 +165,12 @@ it("ends worker stdin and unreferences process handles when cleanup reports insp
   let unreferenced = false;
   let permitCleanup = false;
   let childStdin: typeof process.stdin | undefined;
+  let child: ProviderProcessHandle | undefined;
   const worker = new JavaScriptAnalysisWorker(
     { heapMb: 128, timeoutMs: 30_000 },
     async (request) => {
       const launched = await spawnOwnedProviderProcess(request);
+      child = launched.process;
       const originalUnref = launched.process.unref;
       launched.process.unref = () => {
         unreferenced = true;
@@ -209,6 +214,14 @@ it("ends worker stdin and unreferences process handles when cleanup reports insp
       errorListeners ?? 0,
     );
     permitCleanup = true;
+    if (child === undefined)
+      throw new Error("Expected the real worker process");
+    const stopping = child;
+    await expect
+      .poll(() => stopping.exitCode !== null || stopping.signalCode !== null, {
+        timeout: 5_000,
+      })
+      .toBe(true);
     await worker.close();
   } finally {
     permitCleanup = true;

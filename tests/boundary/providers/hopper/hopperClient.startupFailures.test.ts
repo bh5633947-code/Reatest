@@ -37,6 +37,7 @@ class SilentLauncher implements BridgeLauncher {
 
 class CancelThenFixtureLauncher implements BridgeLauncher {
   #launches = 0;
+  readonly processes: ChildProcess[] = [];
   #firstLaunchReady: ((process: ChildProcess) => void) | undefined;
   readonly firstLaunch = new Promise<ChildProcess>((resolve) => {
     this.#firstLaunchReady = resolve;
@@ -47,6 +48,7 @@ class CancelThenFixtureLauncher implements BridgeLauncher {
     const launched = await (this.#launches === 1
       ? new SilentLauncher().launch()
       : new FixtureLauncher().launch(session));
+    if (launched.ok) this.processes.push(launched.value.process);
     if (this.#launches === 1 && launched.ok)
       this.#firstLaunchReady?.(launched.value.process);
     return launched;
@@ -256,9 +258,14 @@ describe("HopperClient startup failures", () => {
     expect(
       firstProcess.exitCode !== null || firstProcess.signalCode !== null,
     ).toBe(true);
-    await expect(client.start()).resolves.toEqual({
+    const restarted = await client.start();
+    expect(restarted).toEqual({
       ok: true,
-      value: { name: "REA Hopper bridge", version: "1.0.0" },
+      value: {
+        name: "REA Hopper bridge",
+        version: "1.0.0",
+        processId: launcher.processes.at(-1)?.pid,
+      },
     });
     await expect(
       client.callTool("echo", { value: "retried" }),
@@ -282,9 +289,14 @@ describe("HopperClient startup failures", () => {
       error: { _tag: "HopperCancelledError" },
     });
     expect(launcher.processes).toHaveLength(0);
-    await expect(client.start()).resolves.toEqual({
+    const restarted = await client.start();
+    expect(restarted).toEqual({
       ok: true,
-      value: { name: "REA Hopper bridge", version: "1.0.0" },
+      value: {
+        name: "REA Hopper bridge",
+        version: "1.0.0",
+        processId: launcher.processes.at(-1)?.pid,
+      },
     });
     expect(launcher.processes).toHaveLength(1);
     await expect(

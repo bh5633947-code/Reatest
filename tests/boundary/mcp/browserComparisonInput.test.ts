@@ -110,15 +110,6 @@ describe("browser comparison input boundary", () => {
         },
         { before_scenario: {}, after_scenario: {} },
         { before_scenario: scenario.before_scenario },
-        { ...passive, normalization: { rules: [] } },
-        {
-          before_scenario: scenario.before_scenario,
-          normalization: { rules: [] },
-        },
-        {
-          after_scenario: scenario.after_scenario,
-          normalization: { rules: [] },
-        },
         { ...passive, unexpected: true },
         {
           ...scenario,
@@ -133,9 +124,21 @@ describe("browser comparison input boundary", () => {
           },
         },
       ];
-      // The projection leaves group exclusion to the canonical runtime parser.
-      const mixedGroups = [{ ...passive, ...scenario }];
-      for (const { input, advertisedValid, runtimeValid } of [
+      // The client-compatible projection presents field shapes; the canonical
+      // runtime parser owns group completeness, exclusivity and optional partners.
+      const invalidGroups = [
+        { ...passive, ...scenario },
+        { ...passive, normalization: { rules: [] } },
+        {
+          before_scenario: scenario.before_scenario,
+          normalization: { rules: [] },
+        },
+        {
+          after_scenario: scenario.after_scenario,
+          normalization: { rules: [] },
+        },
+      ];
+      for (const [caseIndex, { input, advertisedValid, runtimeValid }] of [
         ...[passive, scenario, withoutNormalization].map((input) => ({
           input,
           advertisedValid: true,
@@ -146,15 +149,16 @@ describe("browser comparison input boundary", () => {
           advertisedValid: false,
           runtimeValid: false,
         })),
-        ...mixedGroups.map((input) => ({
+        ...invalidGroups.map((input) => ({
           input,
           advertisedValid: true,
           runtimeValid: false,
         })),
-      ]) {
-        expect(validate(input), JSON.stringify(validate.errors)).toBe(
-          advertisedValid,
-        );
+      ].entries()) {
+        expect(
+          validate(input),
+          `Input case ${caseIndex}: ${JSON.stringify(validate.errors)}`,
+        ).toBe(advertisedValid);
         expect(
           browserCaptureComparisonInputSchema.safeParse(input).success,
         ).toBe(runtimeValid);

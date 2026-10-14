@@ -1,4 +1,8 @@
-import { numberValue, recordValue } from "./CdpCaptureValues.js";
+import {
+  numberValue,
+  recordValue,
+  domSnapshotStringValue as stringAt,
+} from "./CdpCaptureValues.js";
 
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 const XLINK_NAMESPACE = "http://www.w3.org/1999/xlink";
@@ -51,16 +55,6 @@ interface DomSvgLink {
   readonly xmlDocument: boolean | undefined;
   readonly xlinkHref: string | undefined;
 }
-
-const stringAt = (
-  strings: readonly (string | undefined)[],
-  index: unknown,
-): string | undefined => {
-  const integer = numberValue(index);
-  if (integer === undefined || !Number.isSafeInteger(integer) || integer < 0)
-    return undefined;
-  return strings[integer];
-};
 
 const numberArray = (value: unknown): readonly (number | undefined)[] =>
   Array.isArray(value)
@@ -297,7 +291,7 @@ const validSvgSourceNode = (
 ): boolean => {
   if (
     nodes.nodeTypes[index] === undefined ||
-    stringAt(nodes.strings, nodes.nodeNames[index]) === undefined
+    !stringAt(nodes.strings, nodes.nodeNames[index])
   )
     return false;
   const rawAttributes = nodes.attributes[index];
@@ -307,9 +301,10 @@ const validSvgSourceNode = (
   return (
     attributes.length === rawAttributes.length &&
     attributes.every(
-      (attribute) =>
+      (attribute, offset) =>
         attribute !== undefined &&
-        stringAt(nodes.strings, attribute) !== undefined,
+        stringAt(nodes.strings, attribute) !== undefined &&
+        (offset % 2 !== 0 || stringAt(nodes.strings, attribute) !== ""),
     )
   );
 };

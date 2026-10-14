@@ -182,10 +182,12 @@ const causeCommandOutcome = (
       stderr: stderr.text,
       stdoutBytes: outcome.stdoutBytes ?? Buffer.byteLength(outcome.stdout),
       stderrBytes: outcome.stderrBytes ?? Buffer.byteLength(outcome.stderr),
-      stdoutTruncated: stdout.truncated,
-      stderrTruncated: stderr.truncated,
+      stdoutTruncated: outcome.stdoutTruncated || stdout.truncated,
+      stderrTruncated: outcome.stderrTruncated || stderr.truncated,
       outputTruncated: outcome.outputTruncated,
       killed: outcome.killed,
+      exit_code: outcome.exitCode,
+      signal: outcome.signal,
     },
   };
 };
@@ -263,7 +265,6 @@ const causeLaunchOutcome = (
   redact: (value: string, incomplete?: boolean) => string,
 ): Record<string, JsonValue> => {
   if (!(cause instanceof GhidraLaunchError)) return {};
-  if (cause.cause instanceof GhidraLaunchSupportError) return {};
   const launchSupport =
     cause.launchSupport.length === 0
       ? {}
@@ -274,6 +275,8 @@ const causeLaunchOutcome = (
           })),
         };
   const output = cause.capturedOutput;
+  // The phase error owns the command outcome; retain preceding probe warnings here.
+  if (cause.cause instanceof GhidraLaunchSupportError) return launchSupport;
   if (output === undefined) return launchSupport;
   const stdout = boundedUtf8Text(
     redact(output.stdout),
@@ -292,8 +295,10 @@ const causeLaunchOutcome = (
       truncated,
       ...(truncated
         ? {
-            stdout_bytes: Buffer.byteLength(output.stdout),
-            stderr_bytes: Buffer.byteLength(output.stderr),
+            stdout_bytes:
+              output.stdout_bytes ?? Buffer.byteLength(output.stdout),
+            stderr_bytes:
+              output.stderr_bytes ?? Buffer.byteLength(output.stderr),
           }
         : {}),
       ...(output.exit_code === undefined

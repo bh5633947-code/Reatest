@@ -480,10 +480,11 @@ const installationCoordinates = (
         ? undefined
         : ghidraApplicationProperties(properties),
     javaCommand,
-    // The configuration check rejects a relative JAVA_HOME. Probing it would
-    // run whatever `bin/java` the current directory holds.
+    // Do not probe a home that configuration admission will reject. Windows
+    // owned launches require an ordinary drive path, not UNC/device namespaces.
     java:
-      options.javaHome === undefined || path.isAbsolute(options.javaHome)
+      options.javaHome === undefined ||
+      supportedJavaHome(options.javaHome, platform)
         ? host.probeJava(
             javaCommand,
             ghidraJavaEnvironment(
@@ -503,7 +504,12 @@ const installationChecks = ({
   javaHome,
   host,
 }: GhidraInstallationCheckContext): readonly GhidraInstallationCheck[] => [
-  configurationCheck(coordinates.installDir, javaHome, platform),
+  configurationCheck(
+    coordinates.installDir,
+    javaHome,
+    platform,
+    coordinates.java?.home,
+  ),
   installationCheck({
     name: "platform",
     passed: NATIVE_PLATFORMS[platform] !== undefined,
@@ -557,6 +563,7 @@ const configurationCheck = (
   installDir: string | null,
   javaHome: string | undefined,
   platform: NodeJS.Platform,
+  observedJavaHome: string | undefined,
 ): GhidraInstallationCheck => {
   const { isAbsolute } = platform === "win32" ? win32 : posix;
   const relative = [
@@ -565,6 +572,18 @@ const configurationCheck = (
       : []),
     ...(javaHome !== undefined && !isAbsolute(javaHome) ? ["JAVA_HOME"] : []),
   ];
+  const unsupportedHome = [javaHome, observedJavaHome].find(
+    (home) => home !== undefined && !supportedJavaHome(home, platform),
+  );
+  if (platform === "win32" && unsupportedHome !== undefined)
+    return installationCheck({
+      name: "configuration",
+      passed: false,
+      code: "not_configured",
+      detail: `Unsupported Windows JDK home: ${unsupportedHome}`,
+      remediation:
+        "Set JAVA_HOME to a full JDK root using an ordinary absolute drive path, such as C:\\Java\\jdk-21. Windows owned JVM launches do not support UNC, device-prefixed, or drive-relative paths.",
+    });
   if (installDir === null || relative.length === 0)
     return installationCheck({
       name: "configuration",
@@ -582,6 +601,10 @@ const configurationCheck = (
     remediation: `Set ${settings} to ${relative.length === 1 ? "an absolute path" : "absolute paths"}. REA's analysis and MCP server reject relative paths even when they resolve from the current directory.`,
   });
 };
+
+/** Match the executable path forms accepted by the owned Windows launcher. */
+const supportedJavaHome = (home: string, platform: NodeJS.Platform): boolean =>
+  platform === "win32" ? /^[A-Za-z]:[\\/]/u.test(home) : posix.isAbsolute(home);
 
 /** Project an installation probe into caller-visible, secret-free diagnostics. */
 export const ghidraInstallationDiagnostics = (

@@ -779,11 +779,10 @@ describe("native IDA attached operation admission", () => {
     await client.close();
   });
 
-  it("does not admit the headless-only containment and document operations", async () => {
-    const { client, producer } = await fixture();
+  it("does not admit headless-only containment but lists the bound document", async () => {
+    const { client, producer, target } = await fixture();
     for (const [operation, parameters] of [
       ["resolve_containing_procedure", { address: "0x1000" }],
-      ["list_documents", {}],
     ] as const) {
       const result = await client.execute(operation, parameters);
 
@@ -795,6 +794,9 @@ describe("native IDA attached operation admission", () => {
       producer.calls.some(({ name }) => name === "lookup_funcs"),
       "nothing is dispatched upstream",
     ).toBe(false);
+    const documents = await client.execute("list_documents", {});
+    if (!documents.ok) throw documents.error;
+    expect(documents.value.result).toEqual([target.path]);
     await client.close();
   });
 });

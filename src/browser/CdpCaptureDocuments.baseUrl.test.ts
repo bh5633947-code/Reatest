@@ -194,6 +194,24 @@ describe("DOM metadata document base URLs", () => {
 });
 
 describe("empty form destinations with a document base URL", () => {
+  it("retains Chrome's -1 empty-string indexes in node values and attributes", () => {
+    const value = snapshot(`${origin}/assets/`);
+    const nodes = value.documents[0]?.nodes;
+    if (nodes === undefined) throw new Error("Expected a DOM snapshot");
+    nodes.nodeValue.fill(-1);
+    nodes.attributes[4] = [14, -1];
+    const result = capture(value);
+    expect(result.nodes).toHaveLength(nodes.nodeType.length);
+    expect(
+      result.nodes.every(({ node_value_length }) => node_value_length === 0),
+    ).toBe(true);
+    expect(result.urls[3]).toMatchObject({
+      attribute: "action",
+      url: documentUrl,
+      destination_scope: "approved",
+    });
+  });
+
   it("keeps an empty form action approved when the document base is foreign", () => {
     const foreign = "https://cdn.example.test/assets/";
     const value = snapshot(foreign, foreign);
@@ -332,6 +350,7 @@ const svgDocument = (
 ) => {
   const strings = [documentUrl, baseUrl];
   const intern = (value: string): number => {
+    if (value.length === 0) return -1;
     const existing = strings.indexOf(value);
     if (existing >= 0) return existing;
     strings.push(value);

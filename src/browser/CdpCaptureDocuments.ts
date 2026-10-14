@@ -7,6 +7,7 @@ import {
   recordsValue,
   requiredRecord,
   cdpStringValue,
+  domSnapshotStringValue as indexedString,
   type UnknownRecord,
 } from "./CdpCaptureValues.js";
 import { exclusionReasonForUrl } from "./CdpCaptureEventHelpers.js";
@@ -253,6 +254,7 @@ export function* captureDom(
       if (
         nodeType === undefined ||
         nodeName === undefined ||
+        nodeName.length === 0 ||
         nodeValue === undefined ||
         parent === undefined ||
         parent < -1 ||
@@ -261,8 +263,10 @@ export function* captureDom(
         attributeIndexes === undefined ||
         attributeIndexes.length % 2 !== 0 ||
         attributeIndexes.some(
-          (value) =>
-            value === undefined || indexedString(strings, value) === undefined,
+          (value, offset) =>
+            value === undefined ||
+            indexedString(strings, value) === undefined ||
+            (offset % 2 === 0 && indexedString(strings, value) === ""),
         )
       ) {
         completeness?.exclude("dom", "invalid_protocol_value");
@@ -513,16 +517,6 @@ const accessibilityStates = (
 
 const axText = (value: unknown): string | null =>
   cdpStringValue(recordValue(value)?.value) ?? null;
-
-const indexedString = (
-  strings: readonly (string | undefined)[],
-  index: unknown,
-): string | undefined => {
-  const integer = numberValue(index);
-  if (integer === undefined || !Number.isSafeInteger(integer) || integer < 0)
-    return undefined;
-  return strings[integer];
-};
 
 const uniqueAttributeNames = (
   attributeIndexes: readonly number[],

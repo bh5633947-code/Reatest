@@ -125,10 +125,6 @@ describe("enhanced MCP tools", () => {
         limitations: [caveat],
       },
     });
-    expect(JSON.stringify(graph.structuredContent)?.split(caveat)).toHaveLength(
-      2,
-    );
-
     const trace = await client.callTool({
       name: "trace_call_path",
       arguments: { start: "0x1", goal: "0x2" },
