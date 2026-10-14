@@ -387,7 +387,7 @@ export const isImportMetaUrl = (node: t.Node | undefined): boolean => {
   );
 };
 
-const isFileIdentity = (node: t.Node | undefined): boolean => {
+export const isFileIdentity = (node: t.Node | undefined): boolean => {
   if (t.isIdentifier(node, { name: "__filename" }) || isImportMetaUrl(node))
     return true;
   if (!t.isCallExpression(node)) return false;

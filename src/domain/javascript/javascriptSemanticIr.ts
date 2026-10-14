@@ -66,6 +66,12 @@ export interface JavaScriptSemanticDefinition {
     | "catch"
     | "assignment";
   readonly location: JavaScriptSourceRange;
+  /**
+   * The `VariableDeclaration` kind (`var`, `let`, `const`) for a `variable`
+   * definition. Recorded so consumers can distinguish hoisted `var`
+   * declarations from block-scoped `let`/`const` without reparsing.
+   */
+  readonly declarationKind?: "var" | "let" | "const";
 }
 
 /** One resolved lexical binding plus static value and provenance. */

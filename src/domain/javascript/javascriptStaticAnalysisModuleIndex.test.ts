@@ -116,6 +116,7 @@ it("preserves first insertion precedence and inclusive interval bounds", () => {
     key: "outer-first",
     runtime: "webpackChunkApp",
     requireName: null,
+    loaderScopeId: null,
   });
   nested.add({
     start: 20,
@@ -123,6 +124,7 @@ it("preserves first insertion precedence and inclusive interval bounds", () => {
     key: "inner-second",
     runtime: "webpackChunkApp",
     requireName: null,
+    loaderScopeId: null,
   });
   nested.add({
     start: 30,
@@ -130,6 +132,7 @@ it("preserves first insertion precedence and inclusive interval bounds", () => {
     key: "later-overlap",
     runtime: "webpackChunkApp",
     requireName: null,
+    loaderScopeId: null,
   });
   expect(nested.find(9)).toBeUndefined();
   expect(nested.find(10)?.key).toBe("outer-first");
@@ -148,6 +151,7 @@ it("rejects missing and out-of-range lookup offsets", () => {
     key: "bounded",
     runtime: "webpackChunkApp",
     requireName: null,
+    loaderScopeId: null,
   });
   expect(index.find(undefined)).toBeUndefined();
   expect(index.find(null)).toBeUndefined();

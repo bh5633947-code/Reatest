@@ -28,6 +28,14 @@ export interface JavaScriptModuleRange {
   readonly key: string;
   readonly runtime: string;
   readonly requireName: string | null;
+  /**
+   * Scope id of the factory function's own scope when the factory names its
+   * loader parameter `require`. A bare `require(...)` call resolving to a
+   * binding in exactly this scope is the recovered bundle loader, not a
+   * lexical shadow; a nested binding with the same name resolves to a
+   * different scope and stays shadowed.
+   */
+  readonly loaderScopeId: string | null;
 }
 
 /** Static finding retained with its source offset until module attribution. */
