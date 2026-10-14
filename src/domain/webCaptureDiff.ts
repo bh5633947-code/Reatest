@@ -70,11 +70,15 @@ const compareDimension = (
   after: ReadonlyMap<string, string>,
   complete: boolean,
   reason: string,
-  inventoryComplete = complete,
+  inventoryComplete: boolean | ((identity: string) => boolean) = complete,
 ): Dimension => {
   // Membership evidence can be complete even when selected content is unknown.
   const all = compareIdentities(before, after).filter(
-    ({ change }) => inventoryComplete || change === "modified",
+    ({ identity, change }) =>
+      change === "modified" ||
+      (typeof inventoryComplete === "boolean"
+        ? inventoryComplete
+        : inventoryComplete(identity)),
   );
   if (all.length > 0)
     return {
@@ -247,6 +251,55 @@ const networkIdentity = (
 ): string =>
   `net_${digestCanonicalValue({ method: request.method, url: request.url, resource_type: request.resource_type })}`;
 
+/** An unknown request type can match any observed type at the same method/URL. */
+const networkIdentityCoverage = (
+  before: WebPageInspection,
+  after: WebPageInspection,
+): {
+  readonly complete: boolean;
+  readonly unprovenAbsences: ReadonlySet<string>;
+} => {
+  const complete = [before, after].every((inspection) =>
+    inspection.network.requests.every(
+      ({ resource_type }) => resource_type !== null,
+    ),
+  );
+  const unprovenAbsences = new Set<string>();
+  if (complete) return { complete, unprovenAbsences };
+  type Request = WebPageInspection["network"]["requests"][number];
+  const matchKey = (request: Request): string =>
+    JSON.stringify([request.method, request.url]);
+  const unknownTypes = (
+    inspection: WebPageInspection,
+  ): ReadonlyMap<string, boolean> => {
+    const groups = new Map<string, boolean>();
+    for (const request of inspection.network.requests) {
+      const key = matchKey(request);
+      groups.set(
+        key,
+        groups.get(key) === true || request.resource_type === null,
+      );
+    }
+    return groups;
+  };
+  const retainPotentialMatches = (
+    inspection: WebPageInspection,
+    peer: ReadonlyMap<string, boolean>,
+  ): void => {
+    for (const request of inspection.network.requests) {
+      const peerUnknown = peer.get(matchKey(request));
+      if (
+        peerUnknown === true ||
+        (peerUnknown === false && request.resource_type === null)
+      )
+        unprovenAbsences.add(networkIdentity(request));
+    }
+  };
+  retainPotentialMatches(before, unknownTypes(after));
+  retainPotentialMatches(after, unknownTypes(before));
+  return { complete, unprovenAbsences };
+};
+
 const networkResponseFields = [
   "status",
   "mime_type",
@@ -270,10 +323,34 @@ const sharedNetworkResponseFields = (
   return shared;
 };
 
+/** Section lists and per-kind dropped counts independently limit absence evidence. */
+const networkInventoryComplete = (
+  inspection: WebPageInspection,
+  sections: readonly (
+    | "network_requests"
+    | "websocket_connections"
+    | "websocket_frames"
+  )[],
+): boolean =>
+  sectionsComplete(inspection, sections) &&
+  sections.every(
+    (section) => inspection.completeness.dropped_events[section] === 0,
+  );
+
 const networkDimension = (
   before: WebPageInspection,
   after: WebPageInspection,
 ): Dimension => {
+  const requestsComplete = [before, after].every((inspection) =>
+    networkInventoryComplete(inspection, ["network_requests"]),
+  );
+  const requestIdentities = networkIdentityCoverage(before, after);
+  const webSocketInventoryComplete = [before, after].every((inspection) =>
+    networkInventoryComplete(inspection, [
+      "websocket_connections",
+      "websocket_frames",
+    ]),
+  );
   const responseFields = sharedNetworkResponseFields(before, after);
   const responseFieldsComplete = [...responseFields.values()].every(
     (fields) => fields.size === networkResponseFields.length,
@@ -333,13 +410,6 @@ const networkDimension = (
   );
   const beforeWebSockets = webSocketGroups(before);
   const afterWebSockets = webSocketGroups(after);
-  const inventoryComplete = [before, after].every((inspection) =>
-    sectionsComplete(inspection, [
-      "network_requests",
-      "websocket_connections",
-      "websocket_frames",
-    ]),
-  );
   const [beforeWebSocketPayload, afterWebSocketPayload] = webSocketPayloadMaps(
     beforeWebSockets,
     afterWebSockets,
@@ -356,12 +426,21 @@ const networkDimension = (
       ...webSocketMetadataMap(afterWebSockets),
       ...afterWebSocketPayload,
     ]),
-    inventoryComplete &&
+    requestsComplete &&
+      requestIdentities.complete &&
+      webSocketInventoryComplete &&
       shapesComplete &&
       webSocketPayloadBytesComplete &&
       webSocketShapesComplete,
-    "Network capture or selected HTTP/WebSocket payload-shape coverage is attach-window limited, unavailable, or incomplete.",
-    inventoryComplete,
+    requestIdentities.complete
+      ? "Network capture or selected HTTP/WebSocket payload-shape coverage is limited, unavailable, incomplete, or includes dropped network events."
+      : "HTTP request identity is incomplete because a resource type is unavailable; absence of a potentially matching request and complete network equality cannot be established.",
+    // HTTP and WebSocket identities have independent inventory coverage. Shape
+    // selection can prevent equality without erasing proven membership changes.
+    (identity) =>
+      identity.startsWith("net_")
+        ? requestsComplete && !requestIdentities.unprovenAbsences.has(identity)
+        : identity.startsWith("ws_") && webSocketInventoryComplete,
   );
   return compared.status === "unchanged" && !responseFieldsComplete
     ? {
