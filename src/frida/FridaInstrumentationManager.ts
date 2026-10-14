@@ -275,9 +275,14 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
       let pid: number;
       let target: string;
       if (input.mode === "attach") {
-        const process = await device.getProcessByPid(input.pid);
-        pid = process.pid;
-        target = `${process.name} (pid ${process.pid})`;
+        pid = input.pid;
+        target = `pid ${pid}`;
+        try {
+          const process = await device.getProcessByPid(pid);
+          target = `${process.name} (pid ${pid})`;
+        } catch {
+          // Frida can attach to processes absent from its enumeration snapshot.
+        }
       } else {
         pid = await device.spawn(
           input.program,
