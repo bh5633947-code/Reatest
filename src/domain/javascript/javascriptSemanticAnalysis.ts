@@ -820,6 +820,11 @@ const hasConditionalInitializer = (ancestors: readonly t.Node[]): boolean => {
     const node = ancestors[index];
     if (t.isFunction(node) || t.isProgram(node) || t.isStaticBlock(node))
       return false;
+    // A `for` initializer runs before the first test, and a `do` body runs at
+    // least once, so a declaration in either always reaches its initializer.
+    const inner = ancestors[index + 1];
+    if (t.isForStatement(node) && inner === node.init) continue;
+    if (t.isDoWhileStatement(node) && inner === node.body) continue;
     if (
       t.isIfStatement(node) ||
       t.isLoop(node) ||

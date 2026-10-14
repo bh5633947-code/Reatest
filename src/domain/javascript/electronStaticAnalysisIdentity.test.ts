@@ -198,3 +198,23 @@ it("preserves one initializer across variable redeclarations without accepting w
     analysis.electron.browser_windows.map(({ preload_path }) => preload_path),
   ).toEqual(["./redeclared.js"]);
 });
+
+it("recovers one initializer from a for initializer and a do body", () => {
+  const analysis = analyzeJavaScriptStaticSource(`
+    for (var forInit = require("electron"); false;) {}
+    new forInit.BrowserWindow({webPreferences:{preload:"./for.js"}});
+
+    do { var doOnce = require("electron"); } while (false);
+    new doOnce.BrowserWindow({webPreferences:{preload:"./do.js"}});
+
+    while (flag) { var loopBody = require("electron"); }
+    new loopBody.BrowserWindow({});
+
+    if (flag) { var branch = require("electron"); }
+    new branch.BrowserWindow({});
+  `);
+
+  expect(
+    analysis.electron.browser_windows.map(({ preload_path }) => preload_path),
+  ).toEqual(["./for.js", "./do.js"]);
+});
